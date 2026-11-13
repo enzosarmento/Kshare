@@ -310,6 +310,7 @@ class FsapForegroundNodeController(
         logger = logger,
         clock = clock,
         uuidGenerator = uuidGenerator,
+        peerRegistry = peerRegistry,
     )
     var manualConnector = createManualConnector(activeIdentity)
         private set

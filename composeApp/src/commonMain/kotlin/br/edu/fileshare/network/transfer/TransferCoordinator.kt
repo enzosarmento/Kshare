@@ -57,6 +57,7 @@ class TransferCoordinator(
     clock: Clock = SystemClock,
     private val uuidGenerator: UuidGenerator = PlatformUuidGenerator,
     val progressTracker: TransferProgressTracker = TransferProgressTracker(clock = clock),
+    private val peerRegistry: br.edu.fileshare.network.discovery.PeerRegistry? = null,
 ) {
     private data class ActiveOutgoingContext(
         val transferId: String,
@@ -99,6 +100,7 @@ class TransferCoordinator(
             peerAlias = peer.alias,
             sources = sources,
             transferId = transferId,
+            peerDeviceId = peer.identity.deviceId,
         )
         onFinished(outcome)
     }
@@ -108,6 +110,7 @@ class TransferCoordinator(
         peerAlias: String,
         sources: List<FileSource>,
         transferId: String = uuidGenerator.nextUuidV4(),
+        peerDeviceId: String? = null,
     ): SendFilesOutcome {
         val job = coordinatorScope.coroutineContext[Job]
         val stateMachine = TransferStateMachine(transferId = transferId, logger = logger)
@@ -206,6 +209,7 @@ class TransferCoordinator(
                     ) {
                         return SendFilesOutcome.Cancelled(transferId, prepareRes.message)
                     }
+                    notifyPeerTransportFailure(peerDeviceId, prepareRes.errorCode)
                     return SendFilesOutcome.Failed(transferId, prepareRes.errorCode, prepareRes.message)
                 }
             }
@@ -278,6 +282,7 @@ class TransferCoordinator(
                             errorCode = uploadOutcome.errorCode,
                             errorMessage = uploadOutcome.message,
                         )
+                        notifyPeerTransportFailure(peerDeviceId, uploadOutcome.errorCode)
                         SendFilesOutcome.Failed(transferId, uploadOutcome.errorCode, uploadOutcome.message)
                     }
                 }
@@ -299,6 +304,22 @@ class TransferCoordinator(
                 outgoingMutex.withLock {
                     activeOutgoing.remove(transferId)
                 }
+            }
+        }
+    }
+
+    private suspend fun notifyPeerTransportFailure(
+        peerDeviceId: String?,
+        errorCode: FsapErrorCode,
+    ) {
+        val deviceId = peerDeviceId ?: return
+        val registry = peerRegistry ?: return
+        if (errorCode == FsapErrorCode.CONNECTION_LOST || errorCode == FsapErrorCode.STREAM_TIMEOUT) {
+            runCatching {
+                registry.markDisconnected(
+                    deviceId = deviceId,
+                    connectionLost = true,
+                )
             }
         }
     }

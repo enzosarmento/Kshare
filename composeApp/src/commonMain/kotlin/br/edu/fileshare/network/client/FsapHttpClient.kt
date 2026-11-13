@@ -556,6 +556,16 @@ class FsapHttpClient(
                     stateMachine = stateMachine,
                 )
             }
+            if (ex.isStreamTimeoutCause()) {
+                stateMachine.transitionIfPossible(TransferEvent.STREAM_TIMEOUT)
+                return TransferBatchUploadResult.Failed(
+                    transferId = session.transferId,
+                    errorCode = FsapErrorCode.STREAM_TIMEOUT,
+                    message = "Timeout de socket/stream durante transmissao para ${session.endpoint.host}:${session.endpoint.port}: ${ex.message}",
+                    stateMachine = stateMachine,
+                    cause = ex,
+                )
+            }
             stateMachine.transitionIfPossible(TransferEvent.CONNECTION_LOST)
             return TransferBatchUploadResult.Failed(
                 transferId = session.transferId,
@@ -870,6 +880,13 @@ class FsapHttpClient(
                 requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS
             }
         }
+
+        private fun Throwable.isStreamTimeoutCause(): Boolean =
+            generateSequence(this) { it.cause }.any { cause ->
+                cause is HttpRequestTimeoutException ||
+                    cause is kotlinx.coroutines.TimeoutCancellationException ||
+                    cause::class.simpleName == "SocketTimeoutException"
+            }
 
         private fun computeSafeTotalBytes(files: List<FileItemDto>): Long? {
             var sum = 0L
