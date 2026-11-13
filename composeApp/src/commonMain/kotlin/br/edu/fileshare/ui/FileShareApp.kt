@@ -5,17 +5,26 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -53,7 +62,17 @@ import br.edu.fileshare.ui.viewmodel.FileShareMainViewModel
 import br.edu.fileshare.ui.viewmodel.MainTab
 
 /**
- * Raiz visual Compose Multiplatform (Desktop e Android) em fluxo unidirecional (`TASK-DCLI-001`).
+ * Pontos de quebra responsivos entre layout vertical (smartphones) e painel duplo + NavigationRail
+ * (tablets e Desktop) (`TASK-AND-004`).
+ */
+object FileShareResponsiveBreakpoints {
+    const val WIDE_LAYOUT_THRESHOLD_DP: Int = 600
+
+    fun isWideLayout(widthDp: Int): Boolean = widthDp >= WIDE_LAYOUT_THRESHOLD_DP
+}
+
+/**
+ * Raiz visual Compose Multiplatform (Desktop e Android) em fluxo unidirecional (`TASK-DCLI-001`, `TASK-AND-004`).
  */
 @Composable
 fun FileShareApp(
@@ -66,12 +85,13 @@ fun FileShareApp(
 
     FileShareTheme {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val useNavigationRail = maxWidth >= 720.dp
+            val useNavigationRail = maxWidth >= FileShareResponsiveBreakpoints.WIDE_LAYOUT_THRESHOLD_DP.dp
 
             Scaffold(
                 topBar = {
                     NodeStatusHeader(
                         state = state,
+                        isCompactWidth = !useNavigationRail,
                         onDismissBanner = viewModel::dismissBanner,
                         onRetryStart = viewModel::startNode,
                     )
@@ -98,6 +118,7 @@ fun FileShareApp(
                 ) {
                     if (useNavigationRail) {
                         NavigationRail(
+                            windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start),
                             modifier = Modifier.fillMaxHeight(),
                         ) {
                             Spacer(modifier = Modifier.height(12.dp))
@@ -158,6 +179,7 @@ fun FileShareApp(
 @Composable
 private fun NodeStatusHeader(
     state: FileShareMainUiState,
+    isCompactWidth: Boolean,
     onDismissBanner: () -> Unit,
     onRetryStart: () -> Unit,
 ) {
@@ -166,7 +188,11 @@ private fun NodeStatusHeader(
         shadowElevation = 1.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Column(
+            modifier = Modifier
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -187,7 +213,7 @@ private fun NodeStatusHeader(
                         text = "Dispositivo: ${state.localAlias}  |  Enderecos: $ipSummary :${state.boundHttpPort}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        maxLines = if (isCompactWidth) 2 else 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
@@ -329,6 +355,7 @@ private fun SendTabContent(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SelectedFilesPane(
     files: List<FileSource>,
@@ -340,12 +367,12 @@ private fun SelectedFilesPane(
 ) {
     Card(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            FlowRow(
                 horizontalArrangement = Arrangement.SpaceBetween,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Column {
+                Column(modifier = Modifier.padding(end = 8.dp)) {
                     Text("Arquivos para enviar", style = MaterialTheme.typography.titleMedium)
                     Text(
                         text = "${files.size} selecionado(s) - ${ByteFormatter.formatBytes(totalBytes)}",
@@ -413,6 +440,7 @@ private fun SelectedFilesPane(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PeersAndSendPane(
     state: FileShareMainUiState,
@@ -424,14 +452,15 @@ private fun PeersAndSendPane(
 ) {
     Card(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            FlowRow(
                 horizontalArrangement = Arrangement.SpaceBetween,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
                     text = "Dispositivos disponiveis (${state.peers.size})",
                     style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(end = 8.dp),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = onRefreshPeers) { Text("Atualizar") }
@@ -612,6 +641,7 @@ private fun ReceivedTabContent(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SettingsTabContent(
     state: FileShareMainUiState,
@@ -623,7 +653,10 @@ private fun SettingsTabContent(
     Card(modifier = Modifier.fillMaxSize()) {
         Column(
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
         ) {
             Text("Configuracoes do no local", style = MaterialTheme.typography.titleMedium)
             Text(
@@ -655,7 +688,10 @@ private fun SettingsTabContent(
                 )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Button(onClick = onApplyAndRestart) {
                     Text("Aplicar e reiniciar servidor")
                 }

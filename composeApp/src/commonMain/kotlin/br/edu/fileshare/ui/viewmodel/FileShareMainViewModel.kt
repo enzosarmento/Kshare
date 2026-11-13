@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 enum class MainTab(val title: String) {
     SEND("Enviar"),
@@ -34,6 +36,10 @@ interface FileShareRuntimePort {
     val peers: StateFlow<List<DiscoveredPeer>>
     val receivedFiles: StateFlow<List<StoredFileDescriptor>>
     val localAddresses: StateFlow<List<String>>
+    val externalNodeState: StateFlow<LocalNodeState>?
+        get() = null
+    val externalBoundPort: StateFlow<Int>?
+        get() = null
 
     suspend fun startNode(alias: String, port: Int): Result<Int>
     suspend fun stopNode()
@@ -78,6 +84,7 @@ class FileShareMainViewModel(
     private val scope: CoroutineScope,
     logger: FsapLogger? = null,
 ) {
+    private val nodeLifecycleMutex = Mutex()
     private val nodeFsm = LocalNodeStateMachine(
         nodeId = runtime.localDeviceId,
         logger = logger,
@@ -125,6 +132,86 @@ class FileShareMainViewModel(
                 _uiState.update { it.copy(localAddresses = ips) }
             }
         }
+
+        runtime.externalNodeState?.let { externalStateFlow ->
+            scope.launch {
+                var lastObserved = LocalNodeState.STOPPED
+                externalStateFlow.collectLatest { externalState ->
+                    val transitionDetected = externalState != lastObserved
+                    lastObserved = externalState
+                    if (transitionDetected || externalState == LocalNodeState.AVAILABLE) {
+                        reconcileExternalNodeState(externalState)
+                    }
+                }
+            }
+        }
+
+        runtime.externalBoundPort?.let { boundPortFlow ->
+            scope.launch {
+                boundPortFlow.collectLatest { port ->
+                    if (port > 0) {
+                        _uiState.update { current ->
+                            if (current.boundHttpPort == port) {
+                                current
+                            } else {
+                                val syncDraft = current.activeTab != MainTab.SETTINGS ||
+                                    current.portDraft == current.boundHttpPort.toString()
+                                current.copy(
+                                    boundHttpPort = port,
+                                    portDraft = if (syncDraft) port.toString() else current.portDraft,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    internal suspend fun reconcileExternalNodeState(externalState: LocalNodeState) {
+        nodeLifecycleMutex.withLock {
+            val current = nodeFsm.currentState()
+            when {
+                externalState == LocalNodeState.STOPPED &&
+                    (current == LocalNodeState.AVAILABLE || current == LocalNodeState.DISCOVERING) -> {
+                    nodeFsm.transition(LocalNodeEvent.CMD_STOP_NODE)
+                    nodeFsm.transition(LocalNodeEvent.EVT_CLEANUP_COMPLETED)
+                    _uiState.update {
+                        it.copy(
+                            nodeState = nodeFsm.currentState(),
+                            statusBanner = "Servico FSAP encerrado em segundo plano.",
+                        )
+                    }
+                }
+
+                externalState == LocalNodeState.STOPPED && current == LocalNodeState.FAULTED -> {
+                    nodeFsm.transition(LocalNodeEvent.CMD_STOP_NODE)
+                    nodeFsm.transition(LocalNodeEvent.EVT_CLEANUP_COMPLETED)
+                    _uiState.update { it.copy(nodeState = nodeFsm.currentState()) }
+                }
+
+                externalState == LocalNodeState.AVAILABLE && current == LocalNodeState.STOPPED -> {
+                    nodeFsm.transition(LocalNodeEvent.CMD_START_NODE)
+                    nodeFsm.transition(LocalNodeEvent.EVT_PORTS_BOUND)
+                    nodeFsm.transition(LocalNodeEvent.EVT_INITIAL_ANNOUNCE_SENT)
+                    val syncedPort = runtime.externalBoundPort?.value?.takeIf { it > 0 }
+                    _uiState.update {
+                        it.copy(
+                            nodeState = nodeFsm.currentState(),
+                            boundHttpPort = syncedPort ?: it.boundHttpPort,
+                            portDraft = (syncedPort ?: it.boundHttpPort).toString(),
+                            statusBanner = null,
+                        )
+                    }
+                }
+
+                externalState == LocalNodeState.FAULTED && current == LocalNodeState.STOPPED -> {
+                    nodeFsm.transition(LocalNodeEvent.CMD_START_NODE)
+                    nodeFsm.transition(LocalNodeEvent.EVT_BIND_FAILED)
+                    _uiState.update { it.copy(nodeState = nodeFsm.currentState()) }
+                }
+            }
+        }
     }
 
     fun startNode() {
@@ -132,53 +219,55 @@ class FileShareMainViewModel(
     }
 
     internal suspend fun startNodeInternal() {
-        val currentState = nodeFsm.currentState()
-        val alias = _uiState.value.localAlias
-        val port = _uiState.value.boundHttpPort
+        nodeLifecycleMutex.withLock {
+            val currentState = nodeFsm.currentState()
+            val alias = _uiState.value.localAlias
+            val port = _uiState.value.boundHttpPort
 
-        val startedEvent = when (currentState) {
-            LocalNodeState.STOPPED -> LocalNodeEvent.CMD_START_NODE
-            LocalNodeState.FAULTED -> LocalNodeEvent.CMD_RETRY_START
-            LocalNodeState.AVAILABLE,
-            LocalNodeState.DISCOVERING,
-            -> return
-            LocalNodeState.INITIALIZING,
-            LocalNodeState.SHUTTING_DOWN,
-            -> return
-        }
+            val startedEvent = when (currentState) {
+                LocalNodeState.STOPPED -> LocalNodeEvent.CMD_START_NODE
+                LocalNodeState.FAULTED -> LocalNodeEvent.CMD_RETRY_START
+                LocalNodeState.AVAILABLE,
+                LocalNodeState.DISCOVERING,
+                -> return@withLock
+                LocalNodeState.INITIALIZING,
+                LocalNodeState.SHUTTING_DOWN,
+                -> return@withLock
+            }
 
-        nodeFsm.transition(startedEvent)
-        _uiState.update {
-            it.copy(
-                nodeState = nodeFsm.currentState(),
-                statusBanner = null,
+            nodeFsm.transition(startedEvent)
+            _uiState.update {
+                it.copy(
+                    nodeState = nodeFsm.currentState(),
+                    statusBanner = null,
+                )
+            }
+
+            val result = runtime.startNode(alias = alias, port = port)
+            result.fold(
+                onSuccess = { boundPort ->
+                    nodeFsm.transition(LocalNodeEvent.EVT_PORTS_BOUND)
+                    nodeFsm.transition(LocalNodeEvent.EVT_INITIAL_ANNOUNCE_SENT)
+                    _uiState.update {
+                        it.copy(
+                            nodeState = nodeFsm.currentState(),
+                            boundHttpPort = boundPort,
+                            portDraft = boundPort.toString(),
+                            statusBanner = null,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    nodeFsm.transition(LocalNodeEvent.EVT_BIND_FAILED)
+                    _uiState.update {
+                        it.copy(
+                            nodeState = nodeFsm.currentState(),
+                            statusBanner = "Falha ao iniciar servico de rede: ${error.message ?: "erro desconhecido"}",
+                        )
+                    }
+                },
             )
         }
-
-        val result = runtime.startNode(alias = alias, port = port)
-        result.fold(
-            onSuccess = { boundPort ->
-                nodeFsm.transition(LocalNodeEvent.EVT_PORTS_BOUND)
-                nodeFsm.transition(LocalNodeEvent.EVT_INITIAL_ANNOUNCE_SENT)
-                _uiState.update {
-                    it.copy(
-                        nodeState = nodeFsm.currentState(),
-                        boundHttpPort = boundPort,
-                        portDraft = boundPort.toString(),
-                        statusBanner = null,
-                    )
-                }
-            },
-            onFailure = { error ->
-                nodeFsm.transition(LocalNodeEvent.EVT_BIND_FAILED)
-                _uiState.update {
-                    it.copy(
-                        nodeState = nodeFsm.currentState(),
-                        statusBanner = "Falha ao iniciar servico de rede: ${error.message ?: "erro desconhecido"}",
-                    )
-                }
-            },
-        )
     }
 
     fun stopNode() {
@@ -186,17 +275,19 @@ class FileShareMainViewModel(
     }
 
     internal suspend fun stopNodeInternal() {
-        val currentState = nodeFsm.currentState()
-        if (currentState == LocalNodeState.STOPPED || currentState == LocalNodeState.SHUTTING_DOWN) {
-            return
+        nodeLifecycleMutex.withLock {
+            val currentState = nodeFsm.currentState()
+            if (currentState == LocalNodeState.STOPPED || currentState == LocalNodeState.SHUTTING_DOWN) {
+                return@withLock
+            }
+            nodeFsm.transition(LocalNodeEvent.CMD_STOP_NODE)
+            _uiState.update { it.copy(nodeState = nodeFsm.currentState()) }
+
+            runCatching { runtime.stopNode() }
+
+            nodeFsm.transition(LocalNodeEvent.EVT_CLEANUP_COMPLETED)
+            _uiState.update { it.copy(nodeState = nodeFsm.currentState()) }
         }
-        nodeFsm.transition(LocalNodeEvent.CMD_STOP_NODE)
-        _uiState.update { it.copy(nodeState = nodeFsm.currentState()) }
-
-        runCatching { runtime.stopNode() }
-
-        nodeFsm.transition(LocalNodeEvent.EVT_CLEANUP_COMPLETED)
-        _uiState.update { it.copy(nodeState = nodeFsm.currentState()) }
     }
 
     fun selectTab(tab: MainTab) {
