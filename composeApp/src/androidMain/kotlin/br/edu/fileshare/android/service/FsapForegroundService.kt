@@ -316,6 +316,7 @@ class FsapForegroundNodeController(
 
     private var httpServer: FsapHttpServer? = null
     private var discoveryCoordinator: DiscoveryCoordinator? = null
+    private var lastNotificationState: FsapNotificationState? = null
 
     init {
         observeTransfersForNotificationAndIdleStop()
@@ -354,13 +355,13 @@ class FsapForegroundNodeController(
         _localAlias.value = cleanAlias
         activeIdentity = buildIdentity(cleanAlias, port)
 
-        serviceHost.enterForeground(
-            FsapNotificationState(
-                title = "Iniciando FileShare ($cleanAlias)",
-                text = "Abrindo servidor FSAP na rede local...",
-                ongoing = true,
-            ),
+        val startingState = FsapNotificationState(
+            title = "Iniciando FileShare ($cleanAlias)",
+            text = "Abrindo servidor FSAP na rede local...",
+            ongoing = true,
         )
+        lastNotificationState = startingState
+        serviceHost.enterForeground(startingState)
 
         var startedServer: FsapHttpServer? = null
         return@withLock try {
@@ -423,13 +424,13 @@ class FsapForegroundNodeController(
             } else if (nodeFsm.canTransition(LocalNodeEvent.EVT_TRANSPORT_FATAL_ERROR)) {
                 nodeFsm.transition(LocalNodeEvent.EVT_TRANSPORT_FATAL_ERROR)
             }
-            serviceHost.updateNotification(
-                FsapNotificationState(
-                    title = "FileShare indisponivel",
-                    text = "Falha ao iniciar servidor FSAP: ${err.message ?: "erro desconhecido"}",
-                    ongoing = false,
-                ),
+            val failedState = FsapNotificationState(
+                title = "FileShare indisponivel",
+                text = "Falha ao iniciar servidor FSAP: ${err.message ?: "erro desconhecido"}",
+                ongoing = false,
             )
+            lastNotificationState = failedState
+            serviceHost.updateNotification(failedState)
             Result.failure(err)
         }
     }
@@ -555,6 +556,7 @@ class FsapForegroundNodeController(
         }
 
         if (notifyHostStop) {
+            lastNotificationState = null
             serviceHost.exitForegroundAndStopSelf()
         }
     }
@@ -607,6 +609,8 @@ class FsapForegroundNodeController(
                 hasActiveTransfers = false,
             )
         }
+        if (state == lastNotificationState) return
+        lastNotificationState = state
         serviceHost.updateNotification(state)
     }
 
