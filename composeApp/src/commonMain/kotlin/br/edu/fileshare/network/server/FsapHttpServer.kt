@@ -51,6 +51,8 @@ import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.charsets.Charsets
 import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.SerializationException
 import kotlin.concurrent.Volatile
 
@@ -365,12 +367,21 @@ class FsapHttpServer(
     private var boundPort: Int = config.port
 
     suspend fun start(): Int {
+        val engineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
+            logger.error(
+                component = "FsapHttpServer",
+                message = "Excecao no motor HTTP/TCP Ktor CIO: ${throwable.message ?: throwable::class.simpleName}",
+                context = LogContext(deviceId = config.identity.deviceId),
+                throwable = throwable,
+            )
+        }
         val createdEngine = lifecycleLock.withLock {
             check(engine == null) { "FsapHttpServer ja esta em execucao na porta $boundPort." }
-            embeddedServer(
+            CoroutineScope(engineExceptionHandler).embeddedServer(
                 factory = CIO,
                 port = config.port,
                 host = config.host,
+                parentCoroutineContext = engineExceptionHandler,
             ) {
                 configureFsapServer(
                     config = config,
@@ -384,7 +395,17 @@ class FsapHttpServer(
             }.also { engine = it }
         }
 
-        createdEngine.start(wait = false)
+        try {
+            createdEngine.start(wait = false)
+        } catch (err: Throwable) {
+            runCatching { createdEngine.stop(gracePeriodMillis = 0L, timeoutMillis = 0L) }
+            lifecycleLock.withLock {
+                if (engine === createdEngine) {
+                    engine = null
+                }
+            }
+            throw err
+        }
         val actualPort = createdEngine.engine.resolvedConnectors().firstOrNull()?.port ?: config.port
         boundPort = actualPort
         logger.info(
