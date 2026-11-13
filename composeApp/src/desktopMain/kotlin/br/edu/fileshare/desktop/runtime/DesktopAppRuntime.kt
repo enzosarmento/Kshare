@@ -114,9 +114,6 @@ class DesktopAppRuntime(
 
         activeIdentity = buildIdentity(alias, port)
 
-        manualConnector.close()
-        manualConnector = createManualConnector(activeIdentity)
-
         val server = FsapHttpServer(
             config = FsapHttpServerConfig(
                 identity = activeIdentity,
@@ -133,6 +130,8 @@ class DesktopAppRuntime(
         )
         val boundPort = server.start()
         activeIdentity = activeIdentity.copy(httpPort = boundPort)
+        manualConnector.close()
+        manualConnector = createManualConnector(activeIdentity)
         httpServer = server
         _localAddresses.value = networkInterfaceProvider.listLocalIpv4Addresses()
 

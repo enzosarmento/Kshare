@@ -55,7 +55,7 @@
 | `TASK-TEST-002` | Testes de conformidade HTTP/TCP (`TC-FSAP-006` a `025`) | 10. Testes e Integração | M2 | P0 | Alta | `TASK-DSRV-005`, `TASK-XFER-005` | `DONE` |
 | `TASK-TEST-003` | Testes de descoberta UDP e TTL (`TC-FSAP-001` a `005`) | 10. Testes e Integração | M3 | P0 | Média | `TASK-DISC-004` | `DONE` |
 | `TASK-TEST-004` | Testes de estresse e múltiplas conexões (`TC-FSAP-026`) | 10. Testes e Integração | M6 | P1 | Média | `TASK-TEST-002`, `TASK-XFER-006` | `TODO` |
-| `TASK-TEST-005` | Testes de interoperabilidade Desktop ↔ Android em LAN real | 10. Testes e Integração | M5 | P0 | Alta | `TASK-AND-005`, `TASK-TEST-002`, `TASK-TEST-003` | `TODO` |
+| `TASK-TEST-005` | Testes de interoperabilidade Desktop ↔ Android em LAN real | 10. Testes e Integração | M5 | P0 | Alta | `TASK-AND-005`, `TASK-TEST-002`, `TASK-TEST-003` | `DONE` |
 
 ---
 
@@ -820,5 +820,5 @@
   - Checklist de interoperabilidade nos sentidos exigidos aprovado com verificação `sha256sum` idêntica entre origem e destino.
 - **Arquivos ou módulos potencialmente envolvidos:** `docs/testing.md`, scripts de verificação
 - **Testes necessários:** Roteiro completo de aceitação em LAN.
-- **Status inicial:** `TODO`
+- **Status inicial:** `DONE`
 
