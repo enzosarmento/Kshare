@@ -37,7 +37,7 @@
 | `TASK-DCLI-005` | Modal de confirmação explícita (Aceitar/Recusar) Desktop | 6. Cliente Desktop | M2 | P0 | Média | `TASK-DCLI-001`, `TASK-DSRV-003` | `DONE` |
 | `TASK-DCLI-006` | Barra de progresso, métricas de velocidade e cancelamento | 6. Cliente Desktop | M2 | P0 | Média | `TASK-DCLI-001`, `TASK-XFER-004`, `TASK-XFER-005` | `DONE` |
 | `TASK-AND-001` | `AndroidMulticastLockManager` e transporte UDP Android | 7. Cliente Android | M4 | P0 | Média | `TASK-DISC-001`, `TASK-DISC-003` | `DONE` |
-| `TASK-AND-002` | Armazenamento Android via SAF (`ContentResolver`) e `MediaStore` | 7. Cliente Android | M4 | P0 | Alta | `TASK-XFER-001` | `TODO` |
+| `TASK-AND-002` | Armazenamento Android via SAF (`ContentResolver`) e `MediaStore` | 7. Cliente Android | M4 | P0 | Alta | `TASK-XFER-001` | `DONE` |
 | `TASK-AND-003` | `FsapForegroundService` (`dataSync`) e permissões Android | 7. Cliente Android | M4 | P0 | Alta | `TASK-AND-001`, `TASK-DSRV-005` | `TODO` |
 | `TASK-AND-004` | Telas Compose adaptadas para Android (Descoberta e Aprovação) | 7. Cliente Android | M5 | P0 | Média | `TASK-AND-002`, `TASK-AND-003`, `TASK-DCLI-002` | `TODO` |
 | `TASK-AND-005` | Fluxo completo de envio/recebimento Android com notificações | 7. Cliente Android | M5 | P0 | Alta | `TASK-AND-004`, `TASK-XFER-005` | `TODO` |
@@ -534,7 +534,7 @@
   - Falha de SHA-256 ou cancelamento apaga o `.part` do `cacheDir` sem criar entrada corrompida em `Downloads`.
 - **Arquivos ou módulos potencialmente envolvidos:** `composeApp/src/androidMain/kotlin/br/edu/fileshare/android/storage/`
 - **Testes necessários:** Testes unitários da lógica de staging e limpeza em `androidUnitTest`.
-- **Status inicial:** `TODO`
+- **Status inicial:** `DONE`
 
 ### `TASK-AND-003` — Implementação do `FsapForegroundService` (`dataSync`) e permissões no Android
 - **ID único:** `TASK-AND-003`
