@@ -75,9 +75,18 @@ fun Routing.installTransferPrepareRoute(
         }
 
         val request = requestEnvelope.payload
-        services.fileSink.ensureCapacity(request.totalBytes)
+        val createResult = services.sessionManager.withPrepareAdmissionLock {
+            val reservedBytes = services.sessionManager.reservedRemainingBytes()
+            services.fileSink.ensureCapacity(
+                br.edu.fileshare.storage.StorageExhaustionClassifier.saturatingAdd(
+                    request.totalBytes,
+                    reservedBytes,
+                ),
+            )
+            services.sessionManager.createIncomingSession(requestEnvelope.senderId, request)
+        }
 
-        when (val createResult = services.sessionManager.createIncomingSession(requestEnvelope.senderId, request)) {
+        when (createResult) {
             CreateSessionResult.DuplicateTransferId -> throw FsapProtocolException(
                 errorCode = FsapErrorCode.INVALID_STATE_TRANSITION,
                 message = "Transferencia '${request.transferId}' ja foi iniciada anteriormente.",

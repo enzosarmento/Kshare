@@ -80,7 +80,13 @@ fun Routing.installTransferContentRoute(
         val fileItem = streamContext.fileItem
 
         try {
-            services.fileSink.ensureCapacity(fileItem.sizeBytes)
+            val otherReservedBytes = services.sessionManager.reservedRemainingBytes(excludeTransferId = transferId)
+            services.fileSink.ensureCapacity(
+                br.edu.fileshare.storage.StorageExhaustionClassifier.saturatingAdd(
+                    fileItem.sizeBytes,
+                    otherReservedBytes,
+                ),
+            )
             val partSession = services.fileSink.openPartSession(
                 transferId = transferId,
                 fileId = fileId,
@@ -155,12 +161,12 @@ fun Routing.installTransferContentRoute(
             services.sessionManager.recordStreamFailure(transferId, fileId, protocolEx)
             throw protocolEx
         } catch (ex: Throwable) {
-            val mapped = FsapProtocolException(
-                errorCode = FsapErrorCode.CONNECTION_LOST,
-                message = "Falha de leitura/conexao durante upload de '$fileId': ${ex.message}",
+            val mapped = br.edu.fileshare.storage.StorageExhaustionClassifier.mapWriteOrCommitFailure(
+                throwable = ex,
+                fallbackErrorCode = FsapErrorCode.CONNECTION_LOST,
                 transferId = transferId,
                 fileId = fileId,
-                cause = ex,
+                actionDescription = "Falha de leitura/conexao durante upload",
             )
             services.sessionManager.recordStreamFailure(transferId, fileId, mapped)
             throw mapped

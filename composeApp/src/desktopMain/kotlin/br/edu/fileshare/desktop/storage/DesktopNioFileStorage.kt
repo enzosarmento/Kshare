@@ -143,6 +143,7 @@ class DesktopNioFileSink(
             transferId = transferId,
             fileId = fileId,
             sanitizedFileName = sanitizedName,
+            expectedSizeBytes = expectedSizeBytes,
             partIdentifier = partId,
             partPath = partPath,
             channel = channel,
@@ -208,6 +209,7 @@ class DesktopNioFileSink(
         override val transferId: String,
         override val fileId: String,
         override val sanitizedFileName: String,
+        private val expectedSizeBytes: Long,
         override val partIdentifier: String,
         private val partPath: Path,
         private val channel: FileChannel,
@@ -219,20 +221,73 @@ class DesktopNioFileSink(
         override suspend fun writeChunk(buffer: ByteArray, offset: Int, length: Int) {
             check(!finished) { "Sessao de gravacao ja finalizada para $transferId/$fileId." }
             if (length == 0) return
+            val nextTotal = bytesWritten + length.toLong()
+            if (nextTotal > expectedSizeBytes) {
+                throw FsapProtocolException(
+                    errorCode = FsapErrorCode.SIZE_MISMATCH,
+                    message = "Overflow de stream: $nextTotal bytes excede expectedSizeBytes ($expectedSizeBytes).",
+                    transferId = transferId,
+                    fileId = fileId,
+                )
+            }
             withContext(Dispatchers.IO) {
-                val slice = ByteBuffer.wrap(buffer, offset, length)
-                while (slice.hasRemaining()) {
-                    channel.write(slice)
+                val remainingRequired = (expectedSizeBytes - bytesWritten).coerceAtLeast(length.toLong())
+                val usable = runCatching {
+                    usableSpaceProvider(this@DesktopNioFileSink.targetDirectory)
+                }.getOrNull()
+                if (usable != null && usable < remainingRequired) {
+                    throw FsapProtocolException(
+                        errorCode = FsapErrorCode.INSUFFICIENT_STORAGE,
+                        message = "Espaco insuficiente em disco durante gravacao ($usable B livre, $remainingRequired B necessarios).",
+                        transferId = transferId,
+                        fileId = fileId,
+                    )
                 }
-                bytesWritten += length
+                try {
+                    val slice = ByteBuffer.wrap(buffer, offset, length)
+                    while (slice.hasRemaining()) {
+                        channel.write(slice)
+                    }
+                    bytesWritten = nextTotal
+                } catch (io: IOException) {
+                    val lowSpaceAfterIo = runCatching {
+                        usableSpaceProvider(this@DesktopNioFileSink.targetDirectory) < remainingRequired
+                    }.getOrDefault(false)
+                    if (lowSpaceAfterIo) {
+                        throw FsapProtocolException(
+                            errorCode = FsapErrorCode.INSUFFICIENT_STORAGE,
+                            message = "Espaco em disco esgotado durante gravacao de '$fileId': ${io.message}",
+                            transferId = transferId,
+                            fileId = fileId,
+                            cause = io,
+                        )
+                    }
+                    throw br.edu.fileshare.storage.StorageExhaustionClassifier.mapWriteOrCommitFailure(
+                        throwable = io,
+                        fallbackErrorCode = FsapErrorCode.INTERNAL_ERROR,
+                        transferId = transferId,
+                        fileId = fileId,
+                        actionDescription = "Falha de I/O ao gravar chunk em staging",
+                    )
+                }
             }
         }
 
         override suspend fun flushAndSync() {
             withContext(Dispatchers.IO) {
-                if (channel.isOpen) {
-                    channel.force(true)
-                    channel.close()
+                try {
+                    if (channel.isOpen) {
+                        channel.force(true)
+                        channel.close()
+                    }
+                } catch (io: IOException) {
+                    throw br.edu.fileshare.storage.StorageExhaustionClassifier.mapWriteOrCommitFailure(
+                        throwable = io,
+                        fallbackErrorCode = FsapErrorCode.INTERNAL_ERROR,
+                        transferId = transferId,
+                        fileId = fileId,
+                        actionDescription = "Falha de sincronizacao em disco",
+                    )
                 }
             }
         }
@@ -291,8 +346,13 @@ class DesktopNioFileSink(
             }
             Files.move(source, target)
         } catch (io: IOException) {
+            val errorCode = if (br.edu.fileshare.storage.StorageExhaustionClassifier.isOutOfSpaceThrowable(io)) {
+                FsapErrorCode.INSUFFICIENT_STORAGE
+            } else {
+                FsapErrorCode.INTERNAL_ERROR
+            }
             throw FsapProtocolException(
-                errorCode = FsapErrorCode.INTERNAL_ERROR,
+                errorCode = errorCode,
                 message = "Falha ao promover arquivo temporario para destino final: ${io.message}",
                 cause = io,
             )
