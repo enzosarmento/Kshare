@@ -15,7 +15,10 @@ data class SelectedLanInterface(
 /**
  * Provedor JVM/Android de interfaces de rede LAN com filtragem anti-Docker/VPN/Loopback (`TASK-DISC-001`).
  */
-class JvmNetworkInterfaceProvider : NetworkInterfaceProvider {
+class JvmNetworkInterfaceProvider(
+    private val extraExcludedPrefixes: List<String> = emptyList(),
+    private val prioritizedPrefixes: List<String> = emptyList(),
+) : NetworkInterfaceProvider {
 
     fun selectJoinableInterfaces(): List<SelectedLanInterface> {
         val enumeration = runCatching { NetworkInterface.getNetworkInterfaces() }.getOrNull()
@@ -24,10 +27,14 @@ class JvmNetworkInterfaceProvider : NetworkInterfaceProvider {
         val selected = mutableListOf<SelectedLanInterface>()
         while (enumeration.hasMoreElements()) {
             val netIf = enumeration.nextElement()
+            val name = netIf.name ?: ""
+            val displayName = netIf.displayName ?: name
+            if (isExtraExcluded(name, displayName)) continue
+
             val ipv4Addresses = collectIpv4Addresses(netIf)
             val chosenIp = NetworkInterfaceFilter.selectValidRfc1918Ip(
-                name = netIf.name ?: "",
-                displayName = netIf.displayName ?: "",
+                name = name,
+                displayName = displayName,
                 isUp = runCatching { netIf.isUp }.getOrDefault(false),
                 isLoopback = runCatching { netIf.isLoopback }.getOrDefault(true),
                 supportsMulticast = runCatching { netIf.supportsMulticast() }.getOrDefault(false),
@@ -36,24 +43,43 @@ class JvmNetworkInterfaceProvider : NetworkInterfaceProvider {
             ) ?: continue
 
             val inet4 = ipv4Addresses.firstOrNull { it.hostAddress == chosenIp } ?: continue
-            val name = netIf.name ?: chosenIp
-            val displayName = netIf.displayName ?: name
             selected += SelectedLanInterface(
                 networkInterface = netIf,
                 ipv4Address = inet4,
                 info = LanInterfaceInfo(
-                    name = name,
-                    displayName = displayName,
+                    name = name.ifBlank { chosenIp },
+                    displayName = displayName.ifBlank { chosenIp },
                     ipv4Address = chosenIp,
                 ),
             )
         }
 
-        return selected.sortedBy { it.info.name }
+        return selected.sortedWith(
+            compareBy<SelectedLanInterface>(
+                { priorityRank(it.info.name) },
+                { it.info.name },
+            ),
+        )
     }
 
     override fun listLanInterfaces(): List<LanInterfaceInfo> =
         selectJoinableInterfaces().map { it.info }
+
+    private fun isExtraExcluded(name: String, displayName: String): Boolean {
+        if (extraExcludedPrefixes.isEmpty()) return false
+        val lowerName = name.trim().lowercase()
+        val lowerDisplay = displayName.trim().lowercase()
+        return extraExcludedPrefixes.any { prefix ->
+            val p = prefix.lowercase()
+            lowerName.startsWith(p) || lowerDisplay.startsWith(p)
+        }
+    }
+
+    private fun priorityRank(name: String): Int {
+        val lowerName = name.trim().lowercase()
+        val idx = prioritizedPrefixes.indexOfFirst { lowerName.startsWith(it.lowercase()) }
+        return if (idx >= 0) idx else prioritizedPrefixes.size
+    }
 
     private fun collectIpv4Addresses(netIf: NetworkInterface): List<Inet4Address> {
         val addrs = mutableListOf<Inet4Address>()
