@@ -40,7 +40,7 @@
 | `TASK-AND-002` | Armazenamento Android via SAF (`ContentResolver`) e `MediaStore` | 7. Cliente Android | M4 | P0 | Alta | `TASK-XFER-001` | `DONE` |
 | `TASK-AND-003` | `FsapForegroundService` (`dataSync`) e permissões Android | 7. Cliente Android | M4 | P0 | Alta | `TASK-AND-001`, `TASK-DSRV-005` | `DONE` |
 | `TASK-AND-004` | Telas Compose adaptadas para Android (Descoberta e Aprovação) | 7. Cliente Android | M5 | P0 | Média | `TASK-AND-002`, `TASK-AND-003`, `TASK-DCLI-002` | `DONE` |
-| `TASK-AND-005` | Fluxo completo de envio/recebimento Android com notificações | 7. Cliente Android | M5 | P0 | Alta | `TASK-AND-004`, `TASK-XFER-005` | `TODO` |
+| `TASK-AND-005` | Fluxo completo de envio/recebimento Android com notificações | 7. Cliente Android | M5 | P0 | Alta | `TASK-AND-004`, `TASK-XFER-005` | `DONE` |
 | `TASK-XFER-001` | Portas `FileSource`/`FileSink` e streaming 64 KB + SHA-256 | 8. Transferência de Arquivos | M2 | P0 | Alta | `TASK-FSAP-001` | `DONE` |
 | `TASK-XFER-002` | `FsapHttpClient` para `TRANSFER_REQUEST` e `ACCEPT`/`REJECT` | 8. Transferência de Arquivos | M2 | P0 | Média | `TASK-FSAP-002`, `TASK-FSAP-004` | `DONE` |
 | `TASK-XFER-003` | Upload streaming `TRANSFER_CONTENT` e `TRANSFER_COMPLETE` | 8. Transferência de Arquivos | M2 | P0 | Alta | `TASK-XFER-001`, `TASK-XFER-002` | `DONE` |
@@ -580,7 +580,7 @@
   - Arquivos enviados e recebidos no Android passam na verificação SHA-256 e ficam acessíveis na pasta `Downloads` do dispositivo.
 - **Arquivos ou módulos potencialmente envolvidos:** `composeApp/src/androidMain/kotlin/br/edu/fileshare/android/`
 - **Testes necessários:** Casos de interoperabilidade da Milestone M5 (`TASK-TEST-005`).
-- **Status inicial:** `TODO`
+- **Status inicial:** `DONE`
 
 ---
 
