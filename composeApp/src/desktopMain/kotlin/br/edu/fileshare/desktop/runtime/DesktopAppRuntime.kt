@@ -100,6 +100,7 @@ class DesktopAppRuntime(
         serverSessionManager = sessionManager,
         logger = logger,
         clock = clock,
+        peerRegistry = peerRegistry,
     )
 
     private var httpServer: FsapHttpServer? = null

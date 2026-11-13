@@ -46,7 +46,7 @@
 | `TASK-XFER-003` | Upload streaming `TRANSFER_CONTENT` e `TRANSFER_COMPLETE` | 8. Transferência de Arquivos | M2 | P0 | Alta | `TASK-XFER-001`, `TASK-XFER-002` | `DONE` |
 | `TASK-XFER-004` | `TransferProgressTracker` concorrente com throttling (100 ms) | 8. Transferência de Arquivos | M2 | P0 | Média | `TASK-XFER-003`, `TASK-FSAP-003` | `DONE` |
 | `TASK-XFER-005` | Cancelamento bilateral `TRANSFER_CANCEL` e limpeza `.part` | 8. Transferência de Arquivos | M2 | P1 | Média | `TASK-XFER-003`, `TASK-DSRV-005` | `DONE` |
-| `TASK-XFER-006` | Tratamento de desconexão abrupta e timeout de stream (15 s) | 8. Transferência de Arquivos | M6 | P0 | Média | `TASK-XFER-004`, `TASK-DSRV-005` | `TODO` |
+| `TASK-XFER-006` | Tratamento de desconexão abrupta e timeout de stream (15 s) | 8. Transferência de Arquivos | M6 | P0 | Média | `TASK-XFER-004`, `TASK-DSRV-005` | `DONE` |
 | `TASK-SEC-001` | `FileNameSanitizer` contra Path Traversal e não-sobrescrita | 9. Segurança | M1 | P0 | Baixa | `TASK-FSAP-005` | `DONE` |
 | `TASK-SEC-002` | Gerador e validador de `transferToken` efêmero (`SecureRandom`) | 9. Segurança | M2 | P0 | Baixa | `TASK-FSAP-003` | `DONE` |
 | `TASK-SEC-003` | Limites de payload JSON (`256 KB`), cota de disco e overflow | 9. Segurança | M6 | P1 | Média | `TASK-DSRV-004` | `TODO` |
@@ -676,7 +676,7 @@
   - Queda simulada de socket ou congelamento por `> 15 s` move a sessão para `FAILED` (`FSAP-ERR-408-STREAM_TIMEOUT` / `FSAP-ERR-503-CONNECTION_LOST`) e limpa o `.part` sem vazar file descriptors (`TC-FSAP-021`, `TC-FSAP-022`).
 - **Arquivos ou módulos potencialmente envolvidos:** `composeApp/src/commonMain/kotlin/br/edu/fileshare/network/`
 - **Testes necessários:** Casos `TC-FSAP-021` e `TC-FSAP-022`.
-- **Status inicial:** `TODO`
+- **Status inicial:** `DONE`
 
 ---
 

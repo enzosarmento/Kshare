@@ -59,6 +59,7 @@ internal class DesktopHeadlessServerRuntime(
             runBlocking {
                 withTimeoutOrNull(FsapConstants.T_SHUTDOWN_GRACE_MS) {
                     discoveryCoordinator?.stop(reason = "SERVICE_STOPPED")
+                    sessionManager.close()
                 }
             }
         }
