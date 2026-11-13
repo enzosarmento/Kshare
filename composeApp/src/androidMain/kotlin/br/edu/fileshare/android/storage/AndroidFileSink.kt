@@ -385,9 +385,13 @@ class AndroidFileSink(
     }
 
     override suspend fun availableStorageBytes(): Long = withContext(Dispatchers.IO) {
+        queryAvailableStorageBytes()
+    }
+
+    private fun queryAvailableStorageBytes(): Long {
         val stagingBytes = runCatching { availableStagingBytesProvider() }.getOrDefault(0L)
         val destinationBytes = runCatching { publisher.availableBytes() }.getOrDefault(stagingBytes)
-        minOf(stagingBytes, destinationBytes)
+        return minOf(stagingBytes, destinationBytes)
     }
 
     override suspend fun openPartSession(
@@ -424,6 +428,7 @@ class AndroidFileSink(
             transferId = transferId,
             fileId = fileId,
             sanitizedFileName = sanitizedName,
+            expectedSizeBytes = expectedSizeBytes,
             partIdentifier = partId,
             partFile = partFile,
             channel = channel,
@@ -462,29 +467,81 @@ class AndroidFileSink(
         override val transferId: String,
         override val fileId: String,
         override val sanitizedFileName: String,
+        private val expectedSizeBytes: Long,
         override val partIdentifier: String,
         private val partFile: File,
         private val channel: FileChannel,
     ) : StagedFileSession {
 
+        private var bytesWritten: Long = 0L
         private var finished: Boolean = false
 
         override suspend fun writeChunk(buffer: ByteArray, offset: Int, length: Int) {
             check(!finished) { "Sessao de gravacao ja finalizada para $transferId/$fileId." }
             if (length == 0) return
+            val nextTotal = bytesWritten + length.toLong()
+            if (nextTotal > expectedSizeBytes) {
+                throw FsapProtocolException(
+                    errorCode = FsapErrorCode.SIZE_MISMATCH,
+                    message = "Overflow de stream: $nextTotal bytes excede expectedSizeBytes ($expectedSizeBytes).",
+                    transferId = transferId,
+                    fileId = fileId,
+                )
+            }
             withContext(Dispatchers.IO) {
-                val slice = ByteBuffer.wrap(buffer, offset, length)
-                while (slice.hasRemaining()) {
-                    channel.write(slice)
+                val remainingRequired = (expectedSizeBytes - bytesWritten).coerceAtLeast(length.toLong())
+                val available = queryAvailableStorageBytes()
+                if (available < remainingRequired) {
+                    throw FsapProtocolException(
+                        errorCode = FsapErrorCode.INSUFFICIENT_STORAGE,
+                        message = "Espaco insuficiente no armazenamento Android durante gravacao ($available B livre, $remainingRequired B necessarios).",
+                        transferId = transferId,
+                        fileId = fileId,
+                    )
+                }
+                try {
+                    val slice = ByteBuffer.wrap(buffer, offset, length)
+                    while (slice.hasRemaining()) {
+                        channel.write(slice)
+                    }
+                    bytesWritten = nextTotal
+                } catch (io: IOException) {
+                    val lowSpaceAfterIo = queryAvailableStorageBytes() < remainingRequired
+                    if (lowSpaceAfterIo) {
+                        throw FsapProtocolException(
+                            errorCode = FsapErrorCode.INSUFFICIENT_STORAGE,
+                            message = "Espaco esgotado durante gravacao de '$fileId': ${io.message}",
+                            transferId = transferId,
+                            fileId = fileId,
+                            cause = io,
+                        )
+                    }
+                    throw br.edu.fileshare.storage.StorageExhaustionClassifier.mapWriteOrCommitFailure(
+                        throwable = io,
+                        fallbackErrorCode = FsapErrorCode.INTERNAL_ERROR,
+                        transferId = transferId,
+                        fileId = fileId,
+                        actionDescription = "Falha de I/O ao gravar chunk em staging Android",
+                    )
                 }
             }
         }
 
         override suspend fun flushAndSync() {
             withContext(Dispatchers.IO) {
-                if (channel.isOpen) {
-                    channel.force(true)
-                    channel.close()
+                try {
+                    if (channel.isOpen) {
+                        channel.force(true)
+                        channel.close()
+                    }
+                } catch (io: IOException) {
+                    throw br.edu.fileshare.storage.StorageExhaustionClassifier.mapWriteOrCommitFailure(
+                        throwable = io,
+                        fallbackErrorCode = FsapErrorCode.INTERNAL_ERROR,
+                        transferId = transferId,
+                        fileId = fileId,
+                        actionDescription = "Falha ao sincronizar arquivo temporario Android",
+                    )
                 }
             }
         }
@@ -514,6 +571,17 @@ class AndroidFileSink(
                         message = "Erro ao publicar $sanitizedFileName apos verificacao SHA-256: ${err.message}",
                         throwable = err,
                     )
+                    if (err !is FsapProtocolException &&
+                        br.edu.fileshare.storage.StorageExhaustionClassifier.isOutOfSpaceThrowable(err)
+                    ) {
+                        throw FsapProtocolException(
+                            errorCode = FsapErrorCode.INSUFFICIENT_STORAGE,
+                            message = "Espaco insuficiente ao publicar '$sanitizedFileName': ${err.message}",
+                            transferId = transferId,
+                            fileId = fileId,
+                            cause = err,
+                        )
+                    }
                     throw err
                 }
 

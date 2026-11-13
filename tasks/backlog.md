@@ -49,7 +49,7 @@
 | `TASK-XFER-006` | Tratamento de desconexão abrupta e timeout de stream (15 s) | 8. Transferência de Arquivos | M6 | P0 | Média | `TASK-XFER-004`, `TASK-DSRV-005` | `DONE` |
 | `TASK-SEC-001` | `FileNameSanitizer` contra Path Traversal e não-sobrescrita | 9. Segurança | M1 | P0 | Baixa | `TASK-FSAP-005` | `DONE` |
 | `TASK-SEC-002` | Gerador e validador de `transferToken` efêmero (`SecureRandom`) | 9. Segurança | M2 | P0 | Baixa | `TASK-FSAP-003` | `DONE` |
-| `TASK-SEC-003` | Limites de payload JSON (`256 KB`), cota de disco e overflow | 9. Segurança | M6 | P1 | Média | `TASK-DSRV-004` | `TODO` |
+| `TASK-SEC-003` | Limites de payload JSON (`256 KB`), cota de disco e overflow | 9. Segurança | M6 | P1 | Média | `TASK-DSRV-004` | `DONE` |
 | `TASK-SEC-004` | Transporte TLS opcional com fingerprint SHA-256 na LAN | 9. Segurança | M6 | P2 | Alta | `TASK-SEC-003` | `TODO` |
 | `TASK-TEST-001` | Testes unitários em `commonTest` (DTOs, estados, sanitização) | 10. Testes e Integração | M1 | P0 | Média | `TASK-FSAP-003`, `TASK-FSAP-005`, `TASK-SEC-001` | `DONE` |
 | `TASK-TEST-002` | Testes de conformidade HTTP/TCP (`TC-FSAP-006` a `025`) | 10. Testes e Integração | M2 | P0 | Alta | `TASK-DSRV-005`, `TASK-XFER-005` | `DONE` |
@@ -726,7 +726,7 @@
   - Envio de mais bytes que o declarado é cortado imediatamente com `FSAP-ERR-400-SIZE_MISMATCH` e remoção do `.part`.
 - **Arquivos ou módulos potencialmente envolvidos:** `composeApp/src/commonMain/kotlin/br/edu/fileshare/network/server/`
 - **Testes necessários:** Testes de overflow de stream e limite de payload JSON em `desktopTest`.
-- **Status inicial:** `TODO`
+- **Status inicial:** `DONE`
 
 ### `TASK-SEC-004` — Suporte opcional a transporte TLS autoassinado com verificação de fingerprint SHA-256
 - **ID único:** `TASK-SEC-004`

@@ -135,10 +135,53 @@ class ServerTransferSessionManager(
     private val tokenIdleTtlMs: Long = FsapConstants.T_TOKEN_IDLE_TTL_MS,
 ) {
     private val registryMutex = Mutex()
+    private val prepareAdmissionMutex = Mutex()
     private val sessionsMap = LinkedHashMap<String, ServerTransferSession>()
     private val _sessions = MutableStateFlow<List<ServerSessionSnapshot>>(emptyList())
 
     val sessions: StateFlow<List<ServerSessionSnapshot>> = _sessions.asStateFlow()
+
+    /**
+     * Serializa a verificacao de cota em disco e o registro da sessao para evitar corrida TOCTOU (`TASK-SEC-003`).
+     */
+    suspend fun <T> withPrepareAdmissionLock(block: suspend () -> T): T =
+        prepareAdmissionMutex.withLock { block() }
+
+    /**
+     * Soma os bytes ainda nao gravados reservados pelas sessoes ativas (nao-terminais).
+     */
+    suspend fun reservedRemainingBytes(excludeTransferId: String? = null): Long {
+        val activeSessions = registryMutex.withLock {
+            sessionsMap.values.toList()
+        }
+        var totalReserved = 0L
+        for (session in activeSessions) {
+            if (session.transferId == excludeTransferId) continue
+            val remaining = session.mutex.withLock {
+                if (session.fsm.currentState().isTerminal) {
+                    0L
+                } else if (session.acceptedFileIds.isNotEmpty()) {
+                    var pending = 0L
+                    for (fileId in session.acceptedFileIds) {
+                        val expected = session.filesById[fileId]?.sizeBytes ?: 0L
+                        val received = session.bytesReceivedByFile[fileId] ?: 0L
+                        pending = br.edu.fileshare.storage.StorageExhaustionClassifier.saturatingAdd(
+                            pending,
+                            (expected - received).coerceAtLeast(0L),
+                        )
+                    }
+                    pending
+                } else {
+                    session.totalBytes.coerceAtLeast(0L)
+                }
+            }
+            totalReserved = br.edu.fileshare.storage.StorageExhaustionClassifier.saturatingAdd(
+                totalReserved,
+                remaining,
+            )
+        }
+        return totalReserved
+    }
 
     suspend fun createIncomingSession(
         senderId: String,
