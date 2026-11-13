@@ -44,6 +44,7 @@ import br.edu.fileshare.protocol.statemachine.LocalNodeStateMachine
 import br.edu.fileshare.storage.FileSink
 import br.edu.fileshare.storage.FileSource
 import br.edu.fileshare.storage.StoredFileDescriptor
+import br.edu.fileshare.ui.format.ByteFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -174,11 +175,14 @@ interface FsapServiceHost {
 }
 
 /**
- * Registro reativo do controlador ativo do `FsapForegroundService` para consumo pela UI Android (M5).
+ * Registro reativo do controlador ativo do `FsapForegroundService` e coordenador compartilhado
+ * de aprovacao explicita para consumo pela UI Android (`TASK-AND-003`, `TASK-AND-004`).
  */
 object FsapServiceRegistry {
     private val _activeController = MutableStateFlow<FsapForegroundNodeController?>(null)
     val activeController: StateFlow<FsapForegroundNodeController?> = _activeController.asStateFlow()
+
+    val sharedApprovalCoordinator = InteractiveTransferApprovalCoordinator()
 
     internal fun attach(controller: FsapForegroundNodeController) {
         _activeController.value = controller
@@ -468,6 +472,21 @@ class FsapForegroundNodeController(
         return Result.success(transferId)
     }
 
+    suspend fun cancelActiveTransfers(reason: String = "USER_CANCELLED"): Int {
+        val activeTransfers = transferCoordinator.transfers.value.filter { !it.state.isTerminal }
+        var cancelledCount = 0
+        for (snapshot in activeTransfers) {
+            val cancelled = runCatching {
+                transferCoordinator.cancelTransfer(
+                    transferId = snapshot.transferId,
+                    reason = reason,
+                )
+            }.getOrDefault(false)
+            if (cancelled) cancelledCount++
+        }
+        return cancelledCount
+    }
+
     suspend fun stopNode(reason: String = "USER_STOPPED") {
         lifecycleMutex.withLock {
             stopInternal(reason = reason, notifyHostStop = true)
@@ -571,11 +590,13 @@ class FsapForegroundNodeController(
             val actionLabel = if (primary.direction == TransferDirection.SENDING) "Enviando" else "Recebendo"
             val itemLabel = primary.currentFileName ?: primary.peerAlias
             val suffix = if (activeTransfers.size > 1) " (+${activeTransfers.size - 1})" else ""
+            val bytesSummary = "${ByteFormatter.formatBytes(primary.bytesTransferred)} / ${ByteFormatter.formatBytes(primary.totalBytes)}"
             FsapNotificationState(
                 title = "$actionLabel: $itemLabel$suffix",
-                text = "${primary.percentComplete}% concluido",
+                text = "${primary.percentComplete}% ($bytesSummary)",
                 progressPercent = primary.percentComplete,
                 ongoing = true,
+                hasActiveTransfers = true,
             )
         } else {
             FsapNotificationState(
@@ -583,6 +604,7 @@ class FsapForegroundNodeController(
                 text = "Visivel na rede local — porta ${_boundPort.value}",
                 progressPercent = null,
                 ongoing = true,
+                hasActiveTransfers = false,
             )
         }
         serviceHost.updateNotification(state)
@@ -656,6 +678,7 @@ class FsapForegroundService : Service(), FsapServiceHost {
             localAddressesProvider = { interfaceProvider.listLocalIpv4Addresses() },
             wakeLockManager = AndroidPartialWakeLockManager(context = appContext, logger = logger),
             serviceHost = this,
+            approvalHandler = FsapServiceRegistry.sharedApprovalCoordinator,
             logger = logger,
             clock = container.clock,
         )
@@ -674,7 +697,18 @@ class FsapForegroundService : Service(), FsapServiceHost {
                 return START_NOT_STICKY
             }
 
+            ACTION_CANCEL_TRANSFERS -> {
+                serviceScope.launch {
+                    controller.cancelActiveTransfers(reason = "NOTIFICATION_CANCELLED")
+                }
+                return START_NOT_STICKY
+            }
+
             else -> {
+                val autoStart = intent?.getBooleanExtra(EXTRA_AUTO_START, true) ?: true
+                if (!autoStart) {
+                    return START_NOT_STICKY
+                }
                 val alias = intent?.getStringExtra(EXTRA_ALIAS) ?: AndroidNodeIdentityHelper.defaultAlias()
                 val port = intent?.getIntExtra(EXTRA_PORT, FsapConstants.DEFAULT_HTTP_PORT)
                     ?: FsapConstants.DEFAULT_HTTP_PORT
@@ -745,20 +779,24 @@ class FsapForegroundService : Service(), FsapServiceHost {
     companion object {
         const val ACTION_START_SERVICE: String = "br.edu.fileshare.action.START_FSAP_SERVICE"
         const val ACTION_STOP_SERVICE: String = "br.edu.fileshare.action.STOP_FSAP_SERVICE"
+        const val ACTION_CANCEL_TRANSFERS: String = "br.edu.fileshare.action.CANCEL_ACTIVE_TRANSFERS"
         const val EXTRA_ALIAS: String = "extra_alias"
         const val EXTRA_PORT: String = "extra_port"
         const val EXTRA_RECEPTION_ENABLED: String = "extra_reception_enabled"
+        const val EXTRA_AUTO_START: String = "extra_auto_start"
 
         fun createStartIntent(
             context: Context,
             alias: String = AndroidNodeIdentityHelper.defaultAlias(),
             port: Int = FsapConstants.DEFAULT_HTTP_PORT,
             receptionEnabled: Boolean = true,
+            autoStart: Boolean = true,
         ): Intent = Intent(context, FsapForegroundService::class.java).apply {
             action = ACTION_START_SERVICE
             putExtra(EXTRA_ALIAS, alias)
             putExtra(EXTRA_PORT, port)
             putExtra(EXTRA_RECEPTION_ENABLED, receptionEnabled)
+            putExtra(EXTRA_AUTO_START, autoStart)
         }
 
         fun createStopIntent(context: Context): Intent =
@@ -766,13 +804,19 @@ class FsapForegroundService : Service(), FsapServiceHost {
                 action = ACTION_STOP_SERVICE
             }
 
+        fun createCancelTransfersIntent(context: Context): Intent =
+            Intent(context, FsapForegroundService::class.java).apply {
+                action = ACTION_CANCEL_TRANSFERS
+            }
+
         fun startForegroundNode(
             context: Context,
             alias: String = AndroidNodeIdentityHelper.defaultAlias(),
             port: Int = FsapConstants.DEFAULT_HTTP_PORT,
             receptionEnabled: Boolean = true,
+            autoStart: Boolean = true,
         ) {
-            val intent = createStartIntent(context, alias, port, receptionEnabled)
+            val intent = createStartIntent(context, alias, port, receptionEnabled, autoStart)
             context.startForegroundService(intent)
         }
 

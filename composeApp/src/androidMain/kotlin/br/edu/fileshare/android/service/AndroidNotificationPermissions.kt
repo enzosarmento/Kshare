@@ -25,6 +25,7 @@ data class FsapNotificationState(
     val text: String,
     val progressPercent: Int? = null,
     val ongoing: Boolean = true,
+    val hasActiveTransfers: Boolean = false,
 )
 
 /**
@@ -155,6 +156,23 @@ object FsapServiceNotificationFactory {
                     stopPendingIntent,
                 ).build(),
             )
+
+        if (state.hasActiveTransfers) {
+            val cancelIntent = FsapForegroundService.createCancelTransfersIntent(context)
+            val cancelPendingIntent = PendingIntent.getService(
+                context,
+                2,
+                cancelIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            builder.addAction(
+                Notification.Action.Builder(
+                    null,
+                    "Cancelar envios",
+                    cancelPendingIntent,
+                ).build(),
+            )
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)

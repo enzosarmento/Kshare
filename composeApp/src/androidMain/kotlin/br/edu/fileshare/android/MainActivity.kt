@@ -1,17 +1,116 @@
 package br.edu.fileshare.android
 
-import android.app.Activity
 import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import br.edu.fileshare.android.di.AndroidAppContainer
+import br.edu.fileshare.android.runtime.AndroidFileShareRuntime
+import br.edu.fileshare.android.service.AndroidNotificationPermissionRequester
+import br.edu.fileshare.android.storage.AndroidSafFilePicker
+import br.edu.fileshare.ui.FileShareApp
+import br.edu.fileshare.ui.components.IncomingTransferApprovalDialogHost
+import br.edu.fileshare.ui.components.ManualIpConnectButton
+import br.edu.fileshare.ui.components.ManualIpConnectDialogHost
+import br.edu.fileshare.ui.components.TransferProgressScreen
+import br.edu.fileshare.ui.viewmodel.FileShareMainViewModel
+import br.edu.fileshare.ui.viewmodel.IncomingApprovalViewModel
+import br.edu.fileshare.ui.viewmodel.MainTab
+import br.edu.fileshare.ui.viewmodel.ManualIpConnectViewModel
+import br.edu.fileshare.ui.viewmodel.TransferProgressViewModel
 
 /**
- * Ponto de entrada estrutural para a aplicacao Android (Milestone M0).
+ * Ponto de entrada da aplicacao Compose Multiplatform Android (`TASK-AND-004`, `TASK-AND-005`).
  *
- * Nota: As telas em Compose Multiplatform, integracao com Storage Access Framework (SAF)
- * e Foreground Service para o servidor FSAP serao implementadas nas Milestones M4 e M5.
+ * Conecta a UI responsiva compartilhada em `commonMain` ao seletor SAF, gerenciador de permissao
+ * `POST_NOTIFICATIONS` e ciclo de vida em segundo plano do `FsapForegroundService`.
  */
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
+
+    private var runtime: AndroidFileShareRuntime? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+
+        val container = AndroidAppContainer()
+        val safFilePicker = AndroidSafFilePicker(
+            activity = this,
+            logger = container.logger,
+        )
+        val notificationPermissionRequester = AndroidNotificationPermissionRequester(
+            context = this,
+        ).apply {
+            register(this@MainActivity)
+        }
+
+        val androidRuntime = AndroidFileShareRuntime(
+            context = applicationContext,
+            filePicker = safFilePicker,
+            permissionRequester = notificationPermissionRequester,
+            container = container,
+        ).also { runtime = it }
+
+        setContent {
+            val uiScope = rememberCoroutineScope()
+            val mainViewModel = remember(androidRuntime, uiScope) {
+                FileShareMainViewModel(
+                    runtime = androidRuntime,
+                    scope = uiScope,
+                    logger = androidRuntime.logger,
+                )
+            }
+            val manualIpViewModel = remember(androidRuntime, uiScope, mainViewModel) {
+                ManualIpConnectViewModel(
+                    connectPort = { ip, port -> androidRuntime.connectByManualIp(ip, port) },
+                    scope = uiScope,
+                    onConnected = { peer -> mainViewModel.selectPeer(peer.identity.deviceId) },
+                )
+            }
+            val incomingApprovalViewModel = remember(androidRuntime, uiScope, mainViewModel) {
+                IncomingApprovalViewModel(
+                    coordinator = androidRuntime.approvalCoordinator,
+                    scope = uiScope,
+                    clock = androidRuntime.clock,
+                    onAccepted = { mainViewModel.selectTab(MainTab.TRANSFERS) },
+                )
+            }
+            val transferProgressViewModel = remember(androidRuntime, uiScope) {
+                TransferProgressViewModel(
+                    snapshotsFlow = androidRuntime.transferSnapshots,
+                    cancelPort = { transferId, reason ->
+                        androidRuntime.cancelTransfer(transferId, reason)
+                    },
+                    scope = uiScope,
+                )
+            }
+
+            LaunchedEffect(mainViewModel) {
+                mainViewModel.startNode()
+            }
+
+            FileShareApp(
+                viewModel = mainViewModel,
+                manualConnectTrigger = {
+                    ManualIpConnectButton(onClick = manualIpViewModel::openDialog)
+                },
+                transfersContent = {
+                    TransferProgressScreen(viewModel = transferProgressViewModel)
+                },
+                overlayDialogs = {
+                    ManualIpConnectDialogHost(viewModel = manualIpViewModel)
+                    IncomingTransferApprovalDialogHost(viewModel = incomingApprovalViewModel)
+                },
+            )
+        }
+    }
+
+    override fun onDestroy() {
+        runtime?.close()
+        runtime = null
+        super.onDestroy()
     }
 }
-

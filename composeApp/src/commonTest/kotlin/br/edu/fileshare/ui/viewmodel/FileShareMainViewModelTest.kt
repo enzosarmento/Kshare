@@ -11,7 +11,9 @@ import br.edu.fileshare.protocol.statemachine.PeerConnectionState
 import br.edu.fileshare.storage.FileSource
 import br.edu.fileshare.storage.InMemoryFileSource
 import br.edu.fileshare.storage.StoredFileDescriptor
+import br.edu.fileshare.ui.FileShareResponsiveBreakpoints
 import br.edu.fileshare.ui.format.ByteFormatter
+import kotlin.test.assertFalse
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,6 +41,10 @@ class FileShareMainViewModelTest {
         override val peers: StateFlow<List<DiscoveredPeer>> = peersFlow
         override val receivedFiles: StateFlow<List<StoredFileDescriptor>> = receivedFlow
         override val localAddresses: StateFlow<List<String>> = addressesFlow
+        val externalStateFlow = MutableStateFlow(LocalNodeState.STOPPED)
+        val externalPortFlow = MutableStateFlow(FsapConstants.DEFAULT_HTTP_PORT)
+        override val externalNodeState: StateFlow<LocalNodeState> = externalStateFlow
+        override val externalBoundPort: StateFlow<Int> = externalPortFlow
 
         var failNextStart: Boolean = false
         var pickedFilesQueue: List<FileSource> = emptyList()
@@ -213,6 +219,37 @@ class FileShareMainViewModelTest {
         runtime.peersFlow.value = emptyList()
         runCurrent()
         assertNull(vm.uiState.value.selectedPeerDeviceId)
+    }
+
+    @Test
+    fun `reconciliacao externa de estado acompanha parada via notificacao e reconexao`() = runTest {
+        val runtime = FakeRuntimePort()
+        val vm = FileShareMainViewModel(runtime, backgroundScope)
+        runCurrent()
+        assertEquals(LocalNodeState.STOPPED, vm.uiState.value.nodeState)
+
+        // Servico Android ja ativo ao abrir Activity -> UI assume AVAILABLE e porta vinculada
+        runtime.externalPortFlow.value = 54012
+        runtime.externalStateFlow.value = LocalNodeState.AVAILABLE
+        runCurrent()
+        assertEquals(LocalNodeState.AVAILABLE, vm.uiState.value.nodeState)
+        assertEquals(54012, vm.uiState.value.boundHttpPort)
+
+        // Encerramento via acao na notificacao -> UI volta para STOPPED com banner informativo
+        runtime.externalStateFlow.value = LocalNodeState.STOPPED
+        runCurrent()
+        assertEquals(LocalNodeState.STOPPED, vm.uiState.value.nodeState)
+        assertNotNull(vm.uiState.value.statusBanner)
+    }
+
+    @Test
+    fun `pontos de quebra responsivos distinguem smartphone retrato de tablet e desktop`() {
+        assertFalse(FileShareResponsiveBreakpoints.isWideLayout(360))
+        assertFalse(FileShareResponsiveBreakpoints.isWideLayout(412))
+        assertFalse(FileShareResponsiveBreakpoints.isWideLayout(599))
+        assertTrue(FileShareResponsiveBreakpoints.isWideLayout(600))
+        assertTrue(FileShareResponsiveBreakpoints.isWideLayout(840))
+        assertTrue(FileShareResponsiveBreakpoints.isWideLayout(1040))
     }
 }
 
