@@ -187,9 +187,7 @@ fileshare/
 │   ├── desktopTest/                     # Rede, anti-DoS, TLS e conformidade TC-FSAP-006..026
 │   └── androidUnitTest/                 # Testes de SAF, MediaStore, MulticastLock, Service e E2E
 ├── docs/                                # Especificacao FSAP/1.0, ADRs, seguranca, testes e relatorio final
-├── tasks/                               # Backlog (47 / 47 DONE), milestones (M0-M6) e grafo de dependencias
-├── scripts/                             # Scripts de validacao, servidor CLI, UI Desktop, interop e release
-└── .agent/skills/                       # Skills especializadas do projeto
+└── scripts/                             # Scripts de validacao, servidor CLI, UI Desktop, interop e release
 ```
 
 ---
@@ -205,7 +203,6 @@ fileshare/
 | **Segurança e Erros** | [`SECURITY.md`](SECURITY.md) · [`docs/security.md`](docs/security.md) · [`docs/error-codes.md`](docs/error-codes.md) | Política de segurança, *Path Traversal*, `transferToken`, anti-DoS, TLS/TOFU e 17 códigos `FSAP-ERR-*` |
 | **Arquitetura e ADRs** | [`docs/architecture.md`](docs/architecture.md) · [`docs/decisions/README.md`](docs/decisions/README.md) | Arquitetura KMP em camadas e registros de decisão (`ADR-001` a `ADR-006`) |
 | **Testes e Relatório** | [`docs/protocol-test-cases.md`](docs/protocol-test-cases.md) · [`docs/testing.md`](docs/testing.md) · [`docs/academic-foundation.md`](docs/academic-foundation.md) | Catálogo `TC-FSAP-001..026`, roteiro LAN e relatório acadêmico final consolidado |
-| **Gestão e Backlog** | [`tasks/backlog.md`](tasks/backlog.md) · [`tasks/milestones.md`](tasks/milestones.md) · [`tasks/dependency-graph.md`](tasks/dependency-graph.md) | Backlog (`47 / 47 DONE`), milestones M0–M6 e grafo de dependências |
 
 ---
 
@@ -227,7 +224,7 @@ Contribuições para evolução do protocolo, correções de rede, melhorias de 
    ```
 3. Utilize **Conventional Commits** nas mensagens de commit:
    ```text
-   <tipo>(<escopo>): <descrição curta no imperativo> [TASK-XXX-NNN]
+   <tipo>(<escopo>): <descrição curta no imperativo>
    ```
    Tipos aceitos: `feat`, `fix`, `docs`, `test`, `refactor`, `build`, `chore`.
 4. Abra um **Pull Request** direcionado para **`develop`** (a branch `main` recebe exclusivamente integrações de `develop` já homologadas).
@@ -238,7 +235,7 @@ Contribuições para evolução do protocolo, correções de rede, melhorias de 
 - **Streaming O(1):** é proibido carregar arquivos transferidos integralmente na RAM (`readBytes()`); utilize chunks de **64 KB**, `.part` temporário, limpeza garantida em `finally` e verificação `SHA-256`;
 - **Fidelidade ao Protocolo:** qualquer alteração de contrato JSON, cabeçalho `X-FSAP-*` ou código `FSAP-ERR-*` exige atualização prévia em [`docs/protocol-fsap.md`](docs/protocol-fsap.md) e [`docs/protocol-messages.md`](docs/protocol-messages.md).
 
-Para detalhes completos sobre revisão de código, trilhas paralelas de trabalho e *Definition of Done*, consulte [`CONTRIBUTING.md`](CONTRIBUTING.md), [`tasks/backlog.md`](tasks/backlog.md) e [`tasks/dependency-graph.md`](tasks/dependency-graph.md).
+Para detalhes completos sobre revisão de código e *Definition of Done*, consulte [`CONTRIBUTING.md`](CONTRIBUTING.md) e [`docs/architecture.md`](docs/architecture.md).
 
 ---
 

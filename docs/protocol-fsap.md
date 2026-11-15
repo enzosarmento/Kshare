@@ -194,7 +194,7 @@ Para que o FSAP seja a fonte única de verdade entre Desktop e Android:
 
 A matriz abaixo estabelece a rastreabilidade ponta a ponta entre **Requisitos Funcionais**, **Eventos de Comunicação**, **Estados das Máquinas**, **Mensagens do Protocolo FSAP**, **Fluxos de Sequência**, **Casos de Teste de Conformidade** e **Tasks do Backlog**:
 
-| Requisito | Eventos Associados | Estados Envolvidos | Mensagens FSAP | Fluxos (`communication-flows.md`) | Casos de Teste (`protocol-test-cases.md`) | Tasks do Backlog (`tasks/backlog.md`) |
+| Requisito | Eventos Associados | Estados Envolvidos | Mensagens FSAP | Fluxos (`communication-flows.md`) | Casos de Teste (`protocol-test-cases.md`) | IDs de Rastreabilidade |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **RF-01** (Descoberta UDP Multicast) | `EV-01`, `EV-02`, `EV-04`, `EV-05` | `Node: INITIALIZING` → `DISCOVERING` → `AVAILABLE`; `Peer: DISCOVERED` | `DISCOVER`, `ANNOUNCE` | Fluxo 1, Fluxo 2 | `TC-FSAP-001`, `TC-FSAP-002`, `TC-FSAP-003` | `TASK-FSAP-001`, `TASK-DISC-001`, `TASK-DISC-002` |
 | **RF-02** (Anúncio periódico e saída) | `EV-02`, `EV-03`, `EV-20` | `Node: AVAILABLE` → `SHUTTING_DOWN` → `STOPPED` | `ANNOUNCE`, `BYE` | Fluxo 2, Fluxo 10 | `TC-FSAP-002`, `TC-FSAP-005` | `TASK-DISC-002`, `TASK-DISC-003` |
