@@ -61,6 +61,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -341,8 +342,9 @@ class FsapForegroundNodeController(
         alias: String = _localAlias.value,
         port: Int = _boundPort.value,
         tlsEnabled: Boolean = false,
-    ): Result<Int> = lifecycleMutex.withLock {
-        val cleanAlias = sanitizeAlias(alias)
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        lifecycleMutex.withLock {
+            val cleanAlias = sanitizeAlias(alias)
         val currentState = nodeFsm.currentState()
 
         if ((currentState == LocalNodeState.AVAILABLE || currentState == LocalNodeState.DISCOVERING) &&
@@ -466,9 +468,10 @@ class FsapForegroundNodeController(
             serviceHost.updateNotification(failedState)
             Result.failure(err)
         }
+        }
     }
 
-    suspend fun setReceptionEnabled(enabled: Boolean) {
+    suspend fun setReceptionEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
         _receptionEnabled.value = enabled
         if (!enabled) {
             val shouldStopNow = lifecycleMutex.withLock {
@@ -481,15 +484,15 @@ class FsapForegroundNodeController(
             }
             if (shouldStopNow) {
                 stopNode(reason = "RECEPTION_DISABLED")
-                return
+                return@withContext
             }
         }
         refreshNotificationSnapshot()
     }
 
-    suspend fun refreshDiscovery(): Result<Unit> {
+    suspend fun refreshDiscovery(): Result<Unit> = withContext(Dispatchers.IO) {
         _localAddresses.value = localAddressesProvider()
-        return discoveryCoordinator?.refresh() ?: Result.success(Unit)
+        discoveryCoordinator?.refresh() ?: Result.success(Unit)
     }
 
     suspend fun connectByManualIp(
@@ -497,12 +500,14 @@ class FsapForegroundNodeController(
         port: Int,
         useTls: Boolean = false,
         expectedTlsFingerprintSha256: String? = null,
-    ): ManualConnectResult = manualConnector.connectByManualIp(
-        ipAddress = ipAddress,
-        port = port,
-        useTls = useTls,
-        expectedTlsFingerprintSha256 = expectedTlsFingerprintSha256,
-    )
+    ): ManualConnectResult = withContext(Dispatchers.IO) {
+        manualConnector.connectByManualIp(
+            ipAddress = ipAddress,
+            port = port,
+            useTls = useTls,
+            expectedTlsFingerprintSha256 = expectedTlsFingerprintSha256,
+        )
+    }
 
     fun lookupPeerTlsFingerprint(deviceId: String): String? =
         peerRegistry.peers.value
@@ -522,7 +527,7 @@ class FsapForegroundNodeController(
         return Result.success(transferId)
     }
 
-    suspend fun cancelActiveTransfers(reason: String = "USER_CANCELLED"): Int {
+    suspend fun cancelActiveTransfers(reason: String = "USER_CANCELLED"): Int = withContext(Dispatchers.IO) {
         val activeTransfers = transferCoordinator.transfers.value.filter { !it.state.isTerminal }
         var cancelledCount = 0
         for (snapshot in activeTransfers) {
@@ -534,10 +539,10 @@ class FsapForegroundNodeController(
             }.getOrDefault(false)
             if (cancelled) cancelledCount++
         }
-        return cancelledCount
+        cancelledCount
     }
 
-    suspend fun stopNode(reason: String = "USER_STOPPED") {
+    suspend fun stopNode(reason: String = "USER_STOPPED") = withContext(Dispatchers.IO) {
         lifecycleMutex.withLock {
             stopInternal(reason = reason, notifyHostStop = true)
         }
@@ -710,6 +715,7 @@ class FsapForegroundService : Service(), FsapServiceHost {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private lateinit var controller: FsapForegroundNodeController
+    @Volatile
     private var foregroundEntered: Boolean = false
 
     val nodeController: FsapForegroundNodeController
@@ -749,6 +755,9 @@ class FsapForegroundService : Service(), FsapServiceHost {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action != ACTION_STOP_SERVICE) {
+            FsapServiceRegistry.attach(controller)
+        }
         ensureInitialForegroundNotification()
 
         when (intent?.action) {
@@ -823,6 +832,7 @@ class FsapForegroundService : Service(), FsapServiceHost {
 
     override fun exitForegroundAndStopSelf() {
         foregroundEntered = false
+        FsapServiceRegistry.detach(controller)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }

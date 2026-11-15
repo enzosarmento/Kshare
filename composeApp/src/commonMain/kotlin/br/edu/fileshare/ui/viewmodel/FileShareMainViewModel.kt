@@ -51,6 +51,9 @@ interface FileShareRuntimePort {
     suspend fun startNode(alias: String, port: Int, tlsEnabled: Boolean): Result<Int> =
         startNode(alias = alias, port = port)
 
+    suspend fun restartNode(alias: String, port: Int, tlsEnabled: Boolean): Result<Int> =
+        startNode(alias = alias, port = port, tlsEnabled = tlsEnabled)
+
     suspend fun stopNode()
     suspend fun pickFilesToSend(): List<FileSource>
     suspend fun sendFiles(peer: DiscoveredPeer, sources: List<FileSource>): Result<String>
@@ -205,9 +208,10 @@ class FileShareMainViewModel(
 
     internal suspend fun reconcileExternalNodeState(externalState: LocalNodeState) {
         nodeLifecycleMutex.withLock {
+            val effectiveExternal = runtime.externalNodeState?.value ?: externalState
             val current = nodeFsm.currentState()
             when {
-                externalState == LocalNodeState.STOPPED &&
+                effectiveExternal == LocalNodeState.STOPPED &&
                     (current == LocalNodeState.AVAILABLE || current == LocalNodeState.DISCOVERING) -> {
                     nodeFsm.transition(LocalNodeEvent.CMD_STOP_NODE)
                     nodeFsm.transition(LocalNodeEvent.EVT_CLEANUP_COMPLETED)
@@ -219,13 +223,13 @@ class FileShareMainViewModel(
                     }
                 }
 
-                externalState == LocalNodeState.STOPPED && current == LocalNodeState.FAULTED -> {
+                effectiveExternal == LocalNodeState.STOPPED && current == LocalNodeState.FAULTED -> {
                     nodeFsm.transition(LocalNodeEvent.CMD_STOP_NODE)
                     nodeFsm.transition(LocalNodeEvent.EVT_CLEANUP_COMPLETED)
                     _uiState.update { it.copy(nodeState = nodeFsm.currentState()) }
                 }
 
-                externalState == LocalNodeState.AVAILABLE && current == LocalNodeState.STOPPED -> {
+                effectiveExternal == LocalNodeState.AVAILABLE && current == LocalNodeState.STOPPED -> {
                     nodeFsm.transition(LocalNodeEvent.CMD_START_NODE)
                     nodeFsm.transition(LocalNodeEvent.EVT_PORTS_BOUND)
                     nodeFsm.transition(LocalNodeEvent.EVT_INITIAL_ANNOUNCE_SENT)
@@ -240,7 +244,7 @@ class FileShareMainViewModel(
                     }
                 }
 
-                externalState == LocalNodeState.FAULTED && current == LocalNodeState.STOPPED -> {
+                effectiveExternal == LocalNodeState.FAULTED && current == LocalNodeState.STOPPED -> {
                     nodeFsm.transition(LocalNodeEvent.CMD_START_NODE)
                     nodeFsm.transition(LocalNodeEvent.EVT_BIND_FAILED)
                     _uiState.update { it.copy(nodeState = nodeFsm.currentState()) }
@@ -255,12 +259,7 @@ class FileShareMainViewModel(
 
     internal suspend fun startNodeInternal() {
         nodeLifecycleMutex.withLock {
-            val currentState = nodeFsm.currentState()
-            val alias = _uiState.value.localAlias
-            val port = _uiState.value.boundHttpPort
-            val tlsEnabled = _uiState.value.tlsEnabled
-
-            val startedEvent = when (currentState) {
+            val startedEvent = when (nodeFsm.currentState()) {
                 LocalNodeState.STOPPED -> LocalNodeEvent.CMD_START_NODE
                 LocalNodeState.FAULTED -> LocalNodeEvent.CMD_RETRY_START
                 LocalNodeState.AVAILABLE,
@@ -270,41 +269,75 @@ class FileShareMainViewModel(
                 LocalNodeState.SHUTTING_DOWN,
                 -> return@withLock
             }
-
-            nodeFsm.transition(startedEvent)
-            _uiState.update {
-                it.copy(
-                    nodeState = nodeFsm.currentState(),
-                    statusBanner = null,
-                )
+            executeNodeStartLocked(startedEvent) { alias, port, tlsEnabled ->
+                runtime.startNode(alias = alias, port = port, tlsEnabled = tlsEnabled)
             }
+        }
+    }
 
-            val result = runtime.startNode(alias = alias, port = port, tlsEnabled = tlsEnabled)
-            result.fold(
-                onSuccess = { boundPort ->
-                    nodeFsm.transition(LocalNodeEvent.EVT_PORTS_BOUND)
-                    nodeFsm.transition(LocalNodeEvent.EVT_INITIAL_ANNOUNCE_SENT)
-                    _uiState.update {
-                        it.copy(
-                            nodeState = nodeFsm.currentState(),
-                            boundHttpPort = boundPort,
-                            portDraft = boundPort.toString(),
-                            localTlsFingerprint = runtime.localTlsFingerprint?.value,
-                            statusBanner = null,
-                        )
-                    }
-                },
-                onFailure = { error ->
-                    nodeFsm.transition(LocalNodeEvent.EVT_BIND_FAILED)
-                    _uiState.update {
-                        it.copy(
-                            nodeState = nodeFsm.currentState(),
-                            statusBanner = "Falha ao iniciar servico de rede: ${error.message ?: "erro desconhecido"}",
-                        )
-                    }
-                },
+    internal suspend fun restartNodeInternal() {
+        nodeLifecycleMutex.withLock {
+            val startedEvent = when (nodeFsm.currentState()) {
+                LocalNodeState.STOPPED -> LocalNodeEvent.CMD_START_NODE
+                LocalNodeState.FAULTED -> LocalNodeEvent.CMD_RETRY_START
+                LocalNodeState.AVAILABLE,
+                LocalNodeState.DISCOVERING,
+                -> {
+                    nodeFsm.transition(LocalNodeEvent.CMD_STOP_NODE)
+                    nodeFsm.transition(LocalNodeEvent.EVT_CLEANUP_COMPLETED)
+                    LocalNodeEvent.CMD_START_NODE
+                }
+                LocalNodeState.INITIALIZING,
+                LocalNodeState.SHUTTING_DOWN,
+                -> return@withLock
+            }
+            executeNodeStartLocked(startedEvent) { alias, port, tlsEnabled ->
+                runtime.restartNode(alias = alias, port = port, tlsEnabled = tlsEnabled)
+            }
+        }
+    }
+
+    private suspend fun executeNodeStartLocked(
+        startedEvent: LocalNodeEvent,
+        invokeRuntimeStart: suspend (alias: String, port: Int, tlsEnabled: Boolean) -> Result<Int>,
+    ) {
+        val alias = _uiState.value.localAlias
+        val port = _uiState.value.boundHttpPort
+        val tlsEnabled = _uiState.value.tlsEnabled
+
+        nodeFsm.transition(startedEvent)
+        _uiState.update {
+            it.copy(
+                nodeState = nodeFsm.currentState(),
+                statusBanner = null,
             )
         }
+
+        val result = invokeRuntimeStart(alias, port, tlsEnabled)
+        result.fold(
+            onSuccess = { boundPort ->
+                nodeFsm.transition(LocalNodeEvent.EVT_PORTS_BOUND)
+                nodeFsm.transition(LocalNodeEvent.EVT_INITIAL_ANNOUNCE_SENT)
+                _uiState.update {
+                    it.copy(
+                        nodeState = nodeFsm.currentState(),
+                        boundHttpPort = boundPort,
+                        portDraft = boundPort.toString(),
+                        localTlsFingerprint = runtime.localTlsFingerprint?.value,
+                        statusBanner = null,
+                    )
+                }
+            },
+            onFailure = { error ->
+                nodeFsm.transition(LocalNodeEvent.EVT_BIND_FAILED)
+                _uiState.update {
+                    it.copy(
+                        nodeState = nodeFsm.currentState(),
+                        statusBanner = "Falha ao iniciar servico de rede: ${error.message ?: "erro desconhecido"}",
+                    )
+                }
+            },
+        )
     }
 
     fun stopNode() {
@@ -481,8 +514,7 @@ class FileShareMainViewModel(
             )
         }
 
-        stopNodeInternal()
-        startNodeInternal()
+        restartNodeInternal()
         if (nodeFsm.currentState() == LocalNodeState.AVAILABLE) {
             val modeLabel = if (nextTlsEnabled) "HTTPS/TLS" else "HTTP"
             _uiState.update { it.copy(statusBanner = "Configuracoes aplicadas e servidor reiniciado ($modeLabel).") }

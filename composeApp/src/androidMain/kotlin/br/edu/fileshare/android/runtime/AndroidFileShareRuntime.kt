@@ -68,8 +68,10 @@ class AndroidFileShareRuntime(
         saveDirectoryLabel: String = DEFAULT_SAVE_DIRECTORY_LABEL,
     ) : this(
         localDeviceId = AndroidNodeIdentityHelper.getOrCreateDeviceId(context.applicationContext),
-        initialAlias = AndroidNodeIdentityHelper.defaultAlias(),
-        initialPort = FsapConstants.DEFAULT_HTTP_PORT,
+        initialAlias = FsapServiceRegistry.activeController.value?.localAlias?.value
+            ?: AndroidNodeIdentityHelper.defaultAlias(),
+        initialPort = FsapServiceRegistry.activeController.value?.boundPort?.value?.takeIf { it > 0 }
+            ?: FsapConstants.DEFAULT_HTTP_PORT,
         saveDirectoryLabel = saveDirectoryLabel,
         controllerFlow = FsapServiceRegistry.activeController,
         approvalCoordinator = FsapServiceRegistry.sharedApprovalCoordinator,
