@@ -5,6 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import br.edu.fileshare.android.di.AndroidAppContainer
@@ -90,8 +92,11 @@ class MainActivity : ComponentActivity() {
                         androidRuntime.cancelTransfer(transferId, reason)
                     },
                     scope = uiScope,
+                    onClearCompleted = androidRuntime::clearCompletedTransfers,
                 )
             }
+            val mainState by mainViewModel.uiState.collectAsState()
+            val transferState by transferProgressViewModel.uiState.collectAsState()
 
             LaunchedEffect(mainViewModel) {
                 mainViewModel.startNode()
@@ -107,8 +112,12 @@ class MainActivity : ComponentActivity() {
                 },
                 overlayDialogs = {
                     ManualIpConnectDialogHost(viewModel = manualIpViewModel)
-                    IncomingTransferApprovalDialogHost(viewModel = incomingApprovalViewModel)
+                    IncomingTransferApprovalDialogHost(
+                        viewModel = incomingApprovalViewModel,
+                        saveDirectoryLabel = mainState.saveDirectoryLabel,
+                    )
                 },
+                activeTransfersCount = transferState.activeCount,
             )
         }
     }

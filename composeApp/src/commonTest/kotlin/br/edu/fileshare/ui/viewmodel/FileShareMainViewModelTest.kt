@@ -183,13 +183,30 @@ class FileShareMainViewModelTest {
     }
 
     @Test
-    fun `ByteFormatter formata bytes taxas e ETA corretamente`() {
+    fun `ByteFormatter formata bytes taxas ETA extensoes e metadados corretamente`() {
         assertEquals("512 B", ByteFormatter.formatBytes(512))
         assertEquals("1.5 KB", ByteFormatter.formatBytes(1536))
         assertEquals("2.50 MB/s", ByteFormatter.formatSpeed(2_621_440L))
         assertEquals("--", ByteFormatter.formatEta(null))
         assertEquals("45s", ByteFormatter.formatEta(45))
         assertEquals("2m 05s", ByteFormatter.formatEta(125))
+
+        assertEquals("PDF", ByteFormatter.formatFileExtension("relatorio.final.pdf"))
+        assertEquals("ARQ", ByteFormatter.formatFileExtension("README"))
+        assertEquals("ARQ", ByteFormatter.formatFileExtension("arquivo.longaext"))
+
+        assertEquals("Computador", ByteFormatter.formatDeviceType(DeviceType.DESKTOP))
+        assertEquals("Smartphone", ByteFormatter.formatDeviceType(DeviceType.MOBILE))
+        assertEquals("Tablet", ByteFormatter.formatDeviceType(DeviceType.TABLET))
+        assertEquals("Servidor", ByteFormatter.formatDeviceType(DeviceType.SERVER))
+
+        assertEquals("Linux", ByteFormatter.formatPlatform(PlatformType.LINUX))
+        assertEquals("Windows", ByteFormatter.formatPlatform(PlatformType.WINDOWS))
+        assertEquals("Android", ByteFormatter.formatPlatform(PlatformType.ANDROID))
+
+        assertTrue(ByteFormatter.isErrorMessage("Falha ao iniciar servico de rede"))
+        assertTrue(ByteFormatter.isErrorMessage("Erro ao selecionar arquivos"))
+        assertFalse(ByteFormatter.isErrorMessage("Envio iniciado para Pixel-9."))
     }
 
     @Test

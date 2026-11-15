@@ -44,6 +44,7 @@ data class TransferItemUiModel(
     val errorSummary: String?,
     val canCancel: Boolean,
     val isCancelling: Boolean,
+    val isIndeterminate: Boolean = false,
 )
 
 data class TransferProgressUiState(
@@ -51,6 +52,9 @@ data class TransferProgressUiState(
 ) {
     val activeCount: Int
         get() = items.count { it.canCancel }
+
+    val completedCount: Int
+        get() = items.count { !it.canCancel }
 }
 
 /**
@@ -60,6 +64,7 @@ class TransferProgressViewModel(
     snapshotsFlow: StateFlow<List<TransferProgressSnapshot>>,
     private val cancelPort: TransferCancelPort,
     private val scope: CoroutineScope,
+    private val onClearCompleted: () -> Unit = {},
 ) {
     private val cancellingIds = MutableStateFlow<Set<String>>(emptySet())
     private val _uiState = MutableStateFlow(
@@ -81,6 +86,10 @@ class TransferProgressViewModel(
 
     fun cancelTransfer(transferId: String) {
         scope.launch { cancelTransferInternal(transferId) }
+    }
+
+    fun clearCompleted() {
+        onClearCompleted()
     }
 
     internal suspend fun cancelTransferInternal(transferId: String): Boolean {
@@ -138,6 +147,9 @@ class TransferProgressViewModel(
                 errorSummary = errorText,
                 canCancel = isActive,
                 isCancelling = isCancelling,
+                isIndeterminate = snapshot.state == TransferState.CREATED ||
+                    snapshot.state == TransferState.PENDING_APPROVAL ||
+                    snapshot.state == TransferState.VERIFYING,
             )
         }
 
