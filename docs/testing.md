@@ -1,7 +1,7 @@
 # Estratégia Geral de Testes e Garantia de Qualidade — FileShare
 
 > **Status:** Plano de Testes e Matriz de Interoperabilidade M5 (`TASK-TEST-005`)  
-> **Relacionado a:** [protocol-test-cases.md](file:///home/enzosarmento/Documents/2026.2/redes/fileshare/docs/protocol-test-cases.md), [backlog.md](file:///home/enzosarmento/Documents/2026.2/redes/fileshare/tasks/backlog.md)
+> **Relacionado a:** [protocol-test-cases.md](protocol-test-cases.md)
 
 ---
 
