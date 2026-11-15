@@ -187,6 +187,7 @@ Skills disponíveis ou previstas:
 - `compose-multiplatform-ui`: interfaces e componentes reativos em Compose Multiplatform para Desktop e Android.
 - `network-security`: `FileNameSanitizer`, proteção contra Path Traversal, `TransferTokenManager`, validação de dados e limites anti-DoS.
 - `integration-testing`: testes unitários em `commonTest`, testes de integração e suíte de conformidade `TC-FSAP-001` a `TC-FSAP-026`.
+- `git-semantic-commits`: fluxo Git simplificado (`develop`, `main`, `ai-workspace`), commits semânticos (*Conventional Commits*) e atomicidade por domínio.
 
 Regras para utilização das skills:
 
