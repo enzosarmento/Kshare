@@ -22,6 +22,9 @@ import br.edu.fileshare.ui.viewmodel.IncomingApprovalViewModel
 import br.edu.fileshare.ui.viewmodel.MainTab
 import br.edu.fileshare.ui.viewmodel.ManualIpConnectViewModel
 import br.edu.fileshare.ui.viewmodel.TransferProgressViewModel
+import fileshare.composeapp.generated.resources.Res
+import fileshare.composeapp.generated.resources.kshare_icon
+import org.jetbrains.compose.resources.painterResource
 
 /**
  * Ponto de entrada da aplicacao grafica Compose Desktop (`TASK-DCLI-001`..`TASK-DCLI-006`).
@@ -88,6 +91,7 @@ fun main() = application {
         },
         state = windowState,
         title = "${ProjectInfo.PROJECT_NAME} - ${ProjectInfo.PROTOCOL_NAME}/${ProjectInfo.PROTOCOL_VERSION}",
+        icon = painterResource(Res.drawable.kshare_icon),
     ) {
         FileShareApp(
             viewModel = mainViewModel,
