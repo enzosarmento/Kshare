@@ -205,6 +205,7 @@ object FsapServiceRegistry {
 object AndroidNodeIdentityHelper {
     private const val PREFS_NAME = "fileshare_fsap_prefs"
     private const val KEY_DEVICE_ID = "local_device_id"
+    private const val KEY_DEVICE_ALIAS = "local_device_alias"
 
     fun getOrCreateDeviceId(
         context: Context,
@@ -220,9 +221,27 @@ object AndroidNodeIdentityHelper {
         return created
     }
 
+    fun getSavedAliasOrDefault(context: Context): String {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val saved = prefs.getString(KEY_DEVICE_ALIAS, null)
+        return sanitizeAlias(saved ?: defaultAlias())
+    }
+
+    fun saveAlias(context: Context, alias: String) {
+        val clean = sanitizeAlias(alias)
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_DEVICE_ALIAS, clean).apply()
+    }
+
     fun detectDeviceType(context: Context): DeviceType {
         val smallestWidthDp = context.resources.configuration.smallestScreenWidthDp
         return if (smallestWidthDp >= 600) DeviceType.TABLET else DeviceType.MOBILE
+    }
+
+    fun sanitizeAlias(raw: String): String {
+        val cleaned = raw.replace("\n", " ").replace("\r", " ").trim()
+        return cleaned.ifBlank { defaultAlias() }
+            .take(FsapConstants.MAX_ALIAS_LENGTH)
     }
 
     fun defaultAlias(): String {
@@ -308,12 +327,14 @@ class FsapForegroundNodeController(
         clock = clock,
     )
 
+    @Volatile
     private var activeIdentity: DeviceIdentity = buildIdentity(_localAlias.value, initialPort)
     val httpClient = FsapHttpClient(
         localIdentity = activeIdentity,
         logger = logger,
         clock = clock,
         uuidGenerator = uuidGenerator,
+        localIdentityProvider = { activeIdentity },
     )
     val transferCoordinator = TransferCoordinator(
         httpClient = httpClient,
@@ -402,6 +423,7 @@ class FsapForegroundNodeController(
             port = port,
             tlsSha256Fingerprint = tlsBundle?.certificateInfo?.sha256Fingerprint,
         )
+        httpClient.updateLocalIdentity(activeIdentity)
 
         val startingState = FsapNotificationState(
             title = "Iniciando FileShare ($cleanAlias)",
@@ -435,6 +457,7 @@ class FsapForegroundNodeController(
 
             _boundPort.value = actualPort
             activeIdentity = activeIdentity.copy(httpPort = actualPort)
+            httpClient.updateLocalIdentity(activeIdentity)
             manualConnector.close()
             manualConnector = createManualConnector(activeIdentity)
             httpServer = server
@@ -753,7 +776,7 @@ class FsapForegroundService : Service(), FsapServiceHost {
         )
         createdController = FsapForegroundNodeController(
             localDeviceId = AndroidNodeIdentityHelper.getOrCreateDeviceId(appContext),
-            initialAlias = AndroidNodeIdentityHelper.defaultAlias(),
+            initialAlias = AndroidNodeIdentityHelper.getSavedAliasOrDefault(appContext),
             deviceType = AndroidNodeIdentityHelper.detectDeviceType(appContext),
             initialPort = FsapConstants.DEFAULT_HTTP_PORT,
             fileSink = sink,
@@ -797,7 +820,9 @@ class FsapForegroundService : Service(), FsapServiceHost {
                 if (!autoStart) {
                     return START_NOT_STICKY
                 }
-                val alias = intent?.getStringExtra(EXTRA_ALIAS) ?: AndroidNodeIdentityHelper.defaultAlias()
+                val explicitAlias = intent?.getStringExtra(EXTRA_ALIAS)?.takeIf { it.isNotBlank() }
+                val alias = explicitAlias?.also { AndroidNodeIdentityHelper.saveAlias(this, it) }
+                    ?: AndroidNodeIdentityHelper.getSavedAliasOrDefault(this)
                 val port = intent?.getIntExtra(EXTRA_PORT, FsapConstants.DEFAULT_HTTP_PORT)
                     ?: FsapConstants.DEFAULT_HTTP_PORT
                 val receptionEnabled = intent?.getBooleanExtra(EXTRA_RECEPTION_ENABLED, true) ?: true
@@ -878,7 +903,7 @@ class FsapForegroundService : Service(), FsapServiceHost {
 
         fun createStartIntent(
             context: Context,
-            alias: String = AndroidNodeIdentityHelper.defaultAlias(),
+            alias: String = AndroidNodeIdentityHelper.getSavedAliasOrDefault(context),
             port: Int = FsapConstants.DEFAULT_HTTP_PORT,
             receptionEnabled: Boolean = true,
             autoStart: Boolean = true,
@@ -904,7 +929,7 @@ class FsapForegroundService : Service(), FsapServiceHost {
 
         fun startForegroundNode(
             context: Context,
-            alias: String = AndroidNodeIdentityHelper.defaultAlias(),
+            alias: String = AndroidNodeIdentityHelper.getSavedAliasOrDefault(context),
             port: Int = FsapConstants.DEFAULT_HTTP_PORT,
             receptionEnabled: Boolean = true,
             autoStart: Boolean = true,

@@ -123,9 +123,15 @@ class TransferCoordinator(
             job = kotlinx.coroutines.currentCoroutineContext()[Job] ?: job,
         )
 
+        val resolvedPeerAlias = peerDeviceId
+            ?.let { peerRegistry?.findById(it)?.alias }
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: peerAlias
+
         progressTracker.registerTransfer(
             transferId = transferId,
-            peerAlias = peerAlias,
+            peerAlias = resolvedPeerAlias,
             direction = TransferDirection.SENDING,
             totalBytes = totalBytes,
             totalFiles = sources.size,
@@ -365,6 +371,9 @@ class TransferCoordinator(
         for (snap in snapshots) {
             val fileNamesById = snap.files.associate { it.fileId to it.fileName }
             val currentFileName = snap.currentFileId?.let { fileNamesById[it] }
+            if (snap.senderId.isNotBlank() && snap.senderAlias.isNotBlank()) {
+                peerRegistry?.updatePeerAliasIfPresent(snap.senderId, snap.senderAlias)
+            }
             if (snap.transferId !in trackedIncomingIds && progressTracker.getSnapshot(snap.transferId) == null) {
                 trackedIncomingIds += snap.transferId
                 progressTracker.registerTransfer(
@@ -375,6 +384,8 @@ class TransferCoordinator(
                     totalFiles = snap.files.size,
                     initialState = snap.state,
                 )
+            } else {
+                progressTracker.updatePeerAlias(snap.transferId, snap.senderAlias)
             }
 
             progressTracker.reportProgress(

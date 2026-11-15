@@ -58,7 +58,7 @@ class TransferProgressTracker(
 
     private class TrackedEntry(
         val transferId: String,
-        val peerAlias: String,
+        var peerAlias: String,
         val direction: TransferDirection,
         var state: TransferState,
         val totalBytes: Long,
@@ -107,6 +107,23 @@ class TransferProgressTracker(
             buildSnapshotListLocked(now)
         }
         _transfers.value = snapshotList
+    }
+
+    fun updatePeerAlias(transferId: String, peerAlias: String) {
+        val clean = peerAlias.trim()
+        if (clean.isEmpty()) return
+        val now = clock.epochMillis()
+        val snapshotList = lock.withLock {
+            val entry = entries[transferId] ?: return@withLock null
+            if (entry.peerAlias == clean) return@withLock null
+            entry.peerAlias = clean
+            entry.updatedAtEpochMillis = now
+            lastEmissionEpochMillis = now
+            buildSnapshotListLocked(now)
+        }
+        if (snapshotList != null) {
+            _transfers.value = snapshotList
+        }
     }
 
     fun updateState(

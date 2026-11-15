@@ -58,6 +58,7 @@ class AndroidFileShareRuntime(
     val clock: Clock = SystemClock,
     parentScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val ownsScope: Boolean = true,
+    private val onAliasApplied: (String) -> Unit = {},
 ) : FileShareRuntimePort {
 
     constructor(
@@ -69,7 +70,7 @@ class AndroidFileShareRuntime(
     ) : this(
         localDeviceId = AndroidNodeIdentityHelper.getOrCreateDeviceId(context.applicationContext),
         initialAlias = FsapServiceRegistry.activeController.value?.localAlias?.value
-            ?: AndroidNodeIdentityHelper.defaultAlias(),
+            ?: AndroidNodeIdentityHelper.getSavedAliasOrDefault(context.applicationContext),
         initialPort = FsapServiceRegistry.activeController.value?.boundPort?.value?.takeIf { it > 0 }
             ?: FsapConstants.DEFAULT_HTTP_PORT,
         saveDirectoryLabel = saveDirectoryLabel,
@@ -93,6 +94,9 @@ class AndroidFileShareRuntime(
         ensureNotificationPermission = { permissionRequester.ensureNotificationPermission() },
         logger = container.logger,
         clock = container.clock,
+        onAliasApplied = { alias ->
+            AndroidNodeIdentityHelper.saveAlias(context.applicationContext, alias)
+        },
     )
 
     private val runtimeScope = CoroutineScope(
@@ -117,6 +121,11 @@ class AndroidFileShareRuntime(
         controllerFlow.value?.boundPort?.value ?: initialPort,
     )
     override val externalBoundPort: StateFlow<Int> = _externalBoundPort.asStateFlow()
+
+    private val _externalLocalAlias = MutableStateFlow(
+        controllerFlow.value?.localAlias?.value ?: initialAlias,
+    )
+    override val externalLocalAlias: StateFlow<String> = _externalLocalAlias.asStateFlow()
 
     private val _tlsEnabled = MutableStateFlow(
         controllerFlow.value?.tlsEnabled?.value ?: false,
@@ -158,6 +167,8 @@ class AndroidFileShareRuntime(
                 throwable = err,
             )
         }
+
+        onAliasApplied(alias)
 
         val controller = try {
             controllerFlow.value ?: startServiceAndAwaitController(alias, port)
@@ -297,6 +308,13 @@ class AndroidFileShareRuntime(
                         controller.boundPort.collect { port ->
                             if (port > 0) {
                                 _externalBoundPort.value = port
+                            }
+                        }
+                    }
+                    launch {
+                        controller.localAlias.collect { alias ->
+                            if (alias.isNotBlank()) {
+                                _externalLocalAlias.value = alias
                             }
                         }
                     }

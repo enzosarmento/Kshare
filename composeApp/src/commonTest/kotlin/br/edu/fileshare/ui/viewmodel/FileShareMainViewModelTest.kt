@@ -45,6 +45,8 @@ class FileShareMainViewModelTest {
         val externalPortFlow = MutableStateFlow(FsapConstants.DEFAULT_HTTP_PORT)
         override val externalNodeState: StateFlow<LocalNodeState> = externalStateFlow
         override val externalBoundPort: StateFlow<Int> = externalPortFlow
+        val externalAliasFlow = MutableStateFlow(initialAlias)
+        override val externalLocalAlias: StateFlow<String> = externalAliasFlow
 
         var failNextStart: Boolean = false
         var resolvedPortOverride: Int? = null
@@ -285,6 +287,35 @@ class FileShareMainViewModelTest {
             "Configuracoes aplicadas (HTTP). Porta 54000 em uso; alternado automaticamente para 54001.",
             vm.uiState.value.statusBanner,
         )
+    }
+
+    @Test
+    fun `alteracao pendente em aliasDraft aplica novo alias automaticamente antes do envio e sincroniza alias externo`() = runTest {
+        val runtime = FakeRuntimePort()
+        val vm = FileShareMainViewModel(runtime, backgroundScope)
+        vm.startNodeInternal()
+        runCurrent()
+
+        // Alias atualizado pelo servico em segundo plano reflete em localAlias e aliasDraft
+        runtime.externalAliasFlow.value = "Desktop-Servico"
+        runCurrent()
+        assertEquals("Desktop-Servico", vm.uiState.value.localAlias)
+        assertEquals("Desktop-Servico", vm.uiState.value.aliasDraft)
+
+        // Usuario digita novo alias nas configuracoes mas vai enviar direto sem clicar em Aplicar
+        val peer = samplePeer()
+        runtime.peersFlow.value = listOf(peer)
+        runtime.pickedFilesQueue = listOf(InMemoryFileSource("nota.txt", "abc".encodeToByteArray()))
+        vm.pickFilesInternal()
+        vm.selectTab(MainTab.SETTINGS)
+        vm.updateSettingsDraft("Desktop-Atualizado", FsapConstants.DEFAULT_HTTP_PORT.toString())
+        vm.selectTab(MainTab.SEND)
+        runCurrent()
+
+        vm.sendSelectedFilesInternal()
+        assertEquals("Desktop-Atualizado", vm.uiState.value.localAlias)
+        assertEquals("Desktop-Atualizado", runtime.lastStartedAlias)
+        assertNotNull(runtime.lastSentTransfer)
     }
 
     @Test

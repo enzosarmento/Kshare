@@ -40,6 +40,8 @@ interface FileShareRuntimePort {
         get() = null
     val externalBoundPort: StateFlow<Int>?
         get() = null
+    val externalLocalAlias: StateFlow<String>?
+        get() = null
 
     val tlsEnabled: StateFlow<Boolean>?
         get() = null
@@ -174,6 +176,27 @@ class FileShareMainViewModel(
                                 current.copy(
                                     boundHttpPort = port,
                                     portDraft = if (syncDraft) port.toString() else current.portDraft,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        runtime.externalLocalAlias?.let { aliasFlow ->
+            scope.launch {
+                aliasFlow.collectLatest { alias ->
+                    if (alias.isNotBlank()) {
+                        _uiState.update { current ->
+                            if (current.localAlias == alias) {
+                                current
+                            } else {
+                                val syncDraft = current.activeTab != MainTab.SETTINGS ||
+                                    current.aliasDraft == current.localAlias
+                                current.copy(
+                                    localAlias = alias,
+                                    aliasDraft = if (syncDraft) alias else current.aliasDraft,
                                 )
                             }
                         }
@@ -421,7 +444,7 @@ class FileShareMainViewModel(
     }
 
     internal suspend fun sendSelectedFilesInternal() {
-        val snapshot = _uiState.value
+        var snapshot = _uiState.value
         val targetPeer = snapshot.selectedPeer
         if (targetPeer == null) {
             _uiState.update { it.copy(statusBanner = "Selecione ou conecte um dispositivo destinatario.") }
@@ -432,16 +455,30 @@ class FileShareMainViewModel(
             return
         }
 
+        val draftAlias = snapshot.aliasDraft.trim()
+        if (draftAlias.isNotEmpty() &&
+            draftAlias.length <= FsapConstants.MAX_ALIAS_LENGTH &&
+            draftAlias != snapshot.localAlias
+        ) {
+            applySettingsAndRestartInternal()
+            if (_uiState.value.settingsError != null) {
+                _uiState.update { it.copy(statusBanner = it.settingsError) }
+                return
+            }
+            snapshot = _uiState.value
+        }
+
+        val activeTargetPeer = snapshot.selectedPeer ?: targetPeer
         _uiState.update { it.copy(isBusy = true, statusBanner = null) }
         try {
-            val result = runtime.sendFiles(targetPeer, snapshot.selectedFiles)
+            val result = runtime.sendFiles(activeTargetPeer, snapshot.selectedFiles)
             result.fold(
                 onSuccess = {
                     _uiState.update {
                         it.copy(
                             selectedFiles = emptyList(),
                             activeTab = MainTab.TRANSFERS,
-                            statusBanner = "Envio iniciado para ${targetPeer.identity.alias}.",
+                            statusBanner = "Envio iniciado para ${activeTargetPeer.identity.alias}.",
                         )
                     }
                 },
