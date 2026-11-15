@@ -295,7 +295,7 @@ class FsapHttpServerIdentifyTest {
 
             ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { persistentSocket ->
                 val busyPort = persistentSocket.localPort
-                val blockedServer = FsapHttpServer(
+                val autoFallbackServer = FsapHttpServer(
                     config = FsapHttpServerConfig(
                         identity = SERVER_IDENTITY.copy(httpPort = busyPort),
                         host = "127.0.0.1",
@@ -303,8 +303,35 @@ class FsapHttpServerIdentifyTest {
                     ),
                     logger = logger,
                 )
+                val autoHttpClient = HttpClient(CIO)
+                try {
+                    val actualPort = autoFallbackServer.start()
+                    assertTrue(actualPort != busyPort, "Deve selecionar porta livre quando $busyPort esta em uso.")
+                    assertTrue(
+                        actualPort != FsapConstants.UDP_DISCOVERY_PORT,
+                        "Nao deve alocar porta UDP de descoberta ${FsapConstants.UDP_DISCOVERY_PORT}.",
+                    )
+                    assertTrue(autoFallbackServer.isRunning())
+                    val infoResponse = autoHttpClient.get("http://127.0.0.1:$actualPort${FsapConstants.Routes.INFO}")
+                    assertEquals(HttpStatusCode.OK, infoResponse.status)
+                    val decoded = FsapJson.decodeEnvelope<IdentifyPayload>(infoResponse.bodyAsText())
+                    assertEquals(actualPort, decoded.payload.httpPort)
+                } finally {
+                    autoHttpClient.close()
+                    autoFallbackServer.stop(gracePeriodMillis = 0L, timeoutMillis = 0L)
+                }
+
+                val blockedServer = FsapHttpServer(
+                    config = FsapHttpServerConfig(
+                        identity = SERVER_IDENTITY.copy(httpPort = busyPort),
+                        host = "127.0.0.1",
+                        port = busyPort,
+                        autoSelectPortOnConflict = false,
+                    ),
+                    logger = logger,
+                )
                 val failure = runCatching { blockedServer.start() }.exceptionOrNull()
-                assertTrue(failure != null, "Era esperado erro quando a porta permanece ocupada.")
+                assertTrue(failure != null, "Era esperado erro quando autoSelectPortOnConflict=false.")
                 assertFalse(
                     failure.message?.contains("LazyStandaloneCoroutine", ignoreCase = true) == true,
                     "Mensagem de erro nao deve expor LazyStandaloneCoroutine: ${failure.message}",

@@ -253,6 +253,7 @@ class FsapForegroundNodeController(
     val logger: FsapLogger,
     val clock: Clock = SystemClock,
     private val uuidGenerator: UuidGenerator = PlatformUuidGenerator,
+    private val autoSelectPortOnConflict: Boolean = true,
     parentScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val ownsScope: Boolean = true,
 ) {
@@ -272,6 +273,7 @@ class FsapForegroundNodeController(
 
     private val _boundPort = MutableStateFlow(initialPort)
     val boundPort: StateFlow<Int> = _boundPort.asStateFlow()
+    private var lastRequestedPort: Int = initialPort
 
     private val _localAlias = MutableStateFlow(sanitizeAlias(initialAlias))
     val localAlias: StateFlow<String> = _localAlias.asStateFlow()
@@ -338,18 +340,31 @@ class FsapForegroundNodeController(
         _receivedFiles.update { current -> listOf(descriptor) + current }
     }
 
+    suspend fun restartNode(
+        alias: String = _localAlias.value,
+        port: Int = _boundPort.value,
+        tlsEnabled: Boolean = false,
+    ): Result<Int> = startNode(
+        alias = alias,
+        port = port,
+        tlsEnabled = tlsEnabled,
+        forceRestart = true,
+    )
+
     suspend fun startNode(
         alias: String = _localAlias.value,
         port: Int = _boundPort.value,
         tlsEnabled: Boolean = false,
+        forceRestart: Boolean = false,
     ): Result<Int> = withContext(Dispatchers.IO) {
         lifecycleMutex.withLock {
             val cleanAlias = sanitizeAlias(alias)
         val currentState = nodeFsm.currentState()
 
-        if ((currentState == LocalNodeState.AVAILABLE || currentState == LocalNodeState.DISCOVERING) &&
+        if (!forceRestart &&
+            (currentState == LocalNodeState.AVAILABLE || currentState == LocalNodeState.DISCOVERING) &&
             cleanAlias == _localAlias.value &&
-            (port == _boundPort.value || port == 0) &&
+            (port == _boundPort.value || port == lastRequestedPort || port == 0) &&
             tlsEnabled == _tlsEnabled.value
         ) {
             refreshNotificationSnapshot()
@@ -366,6 +381,7 @@ class FsapForegroundNodeController(
             LocalNodeEvent.CMD_START_NODE
         }
         nodeFsm.transition(startEvent)
+        lastRequestedPort = port
 
         val tlsBundle = if (tlsEnabled) {
             PlatformTlsProvider.generateSelfSignedBundle(
@@ -403,6 +419,7 @@ class FsapForegroundNodeController(
                     host = "0.0.0.0",
                     port = port,
                     tlsBundle = tlsBundle,
+                    autoSelectPortOnConflict = autoSelectPortOnConflict,
                 ),
                 logger = logger,
                 clock = clock,

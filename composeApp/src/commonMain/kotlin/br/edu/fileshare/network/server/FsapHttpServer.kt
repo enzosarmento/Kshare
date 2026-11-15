@@ -69,6 +69,7 @@ data class FsapHttpServerConfig(
     val port: Int = identity.httpPort,
     val maxJsonBodyBytes: Int = FsapConstants.MAX_JSON_BODY_BYTES,
     val tlsBundle: br.edu.fileshare.security.tls.PlatformTlsBundle? = null,
+    val autoSelectPortOnConflict: Boolean = true,
 ) {
     val effectiveIdentity: DeviceIdentity
         get() = if (tlsBundle == null) {
@@ -397,79 +398,108 @@ class FsapHttpServer(
         }
         val useTls = config.tlsBundle != null
         val engineHost = if (useTls) "127.0.0.1" else config.host
-        val enginePort = if (useTls) 0 else config.port
-        val maxBindAttempts = if (config.port > 0) 10 else 1
+        val candidatePorts = buildCandidatePorts(config.port, config.autoSelectPortOnConflict)
 
         var lastError: Throwable? = null
-        for (attempt in 1..maxBindAttempts) {
-            val engineContext = SupervisorJob() + engineExceptionHandler
-            val createdEngine = lifecycleLock.withLock {
-                check(engine == null) { "FsapHttpServer ja esta em execucao na porta $boundPort." }
-                CoroutineScope(engineContext).embeddedServer(
-                    factory = CIO,
-                    port = enginePort,
-                    host = engineHost,
-                    watchPaths = emptyList(),
-                    parentCoroutineContext = engineContext,
-                ) {
-                    configureFsapServer(
-                        config = config,
-                        logger = logger,
-                        clock = clock,
-                        uuidGenerator = uuidGenerator,
-                        effectivePortProvider = { resolvedPort() },
-                        transferServices = transferServices,
-                        extraRoutes = extraRoutes,
-                    )
-                }.apply {
-                    engineConfig.reuseAddress = true
-                }.also { engine = it }
-            }
+        for ((candidateIndex, candidatePort) in candidatePorts.withIndex()) {
+            val enginePort = if (useTls) 0 else candidatePort
+            val maxAttemptsForPort = if (candidateIndex == 0 && candidatePort > 0) 5 else 1
+            for (attempt in 1..maxAttemptsForPort) {
+                val engineContext = SupervisorJob() + engineExceptionHandler
+                val createdEngine = lifecycleLock.withLock {
+                    check(engine == null) { "FsapHttpServer ja esta em execucao na porta $boundPort." }
+                    CoroutineScope(engineContext).embeddedServer(
+                        factory = CIO,
+                        port = enginePort,
+                        host = engineHost,
+                        watchPaths = emptyList(),
+                        parentCoroutineContext = engineContext,
+                    ) {
+                        configureFsapServer(
+                            config = config,
+                            logger = logger,
+                            clock = clock,
+                            uuidGenerator = uuidGenerator,
+                            effectivePortProvider = { resolvedPort() },
+                            transferServices = transferServices,
+                            extraRoutes = extraRoutes,
+                        )
+                    }.apply {
+                        engineConfig.reuseAddress = true
+                    }.also { engine = it }
+                }
 
-            try {
-                createdEngine.start(wait = false)
-                val engineBoundPort = createdEngine.engine.resolvedConnectors().firstOrNull()?.port ?: config.port
-                val actualPort = if (useTls) {
-                    val proxy = br.edu.fileshare.security.tls.PlatformTlsProvider.startTlsProxy(
-                        bundle = requireNotNull(config.tlsBundle),
-                        bindHost = config.host,
-                        bindPort = config.port,
-                        targetLoopbackHost = "127.0.0.1",
-                        targetLoopbackPort = engineBoundPort,
-                        logger = logger,
-                    )
-                    tlsProxy = proxy
-                    proxy.boundPort
-                } else {
-                    engineBoundPort
-                }
-                boundPort = actualPort
-                logger.info(
-                    component = "FsapHttpServer",
-                    message = "Servidor ${if (useTls) "HTTPS/TLS" else "HTTP/TCP"} FSAP/1.0 ativo em ${config.host}:$actualPort (alias='${config.identity.alias}').",
-                    context = LogContext(deviceId = config.identity.deviceId),
-                )
-                return actualPort
-            } catch (err: Throwable) {
-                runCatching { tlsProxy?.close() }
-                tlsProxy = null
-                runCatching { createdEngine.stop(gracePeriodMillis = 0L, timeoutMillis = 0L) }
-                lifecycleLock.withLock {
-                    if (engine === createdEngine) {
-                        engine = null
+                try {
+                    createdEngine.start(wait = false)
+                    val engineBoundPort = createdEngine.engine.resolvedConnectors().firstOrNull()?.port ?: candidatePort
+                    val actualPort = if (useTls) {
+                        val proxy = br.edu.fileshare.security.tls.PlatformTlsProvider.startTlsProxy(
+                            bundle = requireNotNull(config.tlsBundle),
+                            bindHost = config.host,
+                            bindPort = candidatePort,
+                            targetLoopbackHost = "127.0.0.1",
+                            targetLoopbackPort = engineBoundPort,
+                            logger = logger,
+                        )
+                        tlsProxy = proxy
+                        proxy.boundPort
+                    } else {
+                        engineBoundPort
                     }
-                }
-                currentCoroutineContext().ensureActive()
-                val rootError = unwrapEngineStartError(err)
-                lastError = rootError
-                if (attempt < maxBindAttempts && isRetryableBindFailure(err)) {
-                    delay(60L * attempt)
-                } else {
-                    throw rootError
+                    boundPort = actualPort
+                    if (config.port > 0 && actualPort != config.port) {
+                        logger.info(
+                            component = "FsapHttpServer",
+                            message = "Porta preferida ${config.port} em uso; alternando automaticamente para a porta livre $actualPort.",
+                            context = LogContext(deviceId = config.identity.deviceId),
+                        )
+                    }
+                    logger.info(
+                        component = "FsapHttpServer",
+                        message = "Servidor ${if (useTls) "HTTPS/TLS" else "HTTP/TCP"} FSAP/1.0 ativo em ${config.host}:$actualPort (alias='${config.identity.alias}').",
+                        context = LogContext(deviceId = config.identity.deviceId),
+                    )
+                    return actualPort
+                } catch (err: Throwable) {
+                    runCatching { tlsProxy?.close() }
+                    tlsProxy = null
+                    runCatching { createdEngine.stop(gracePeriodMillis = 0L, timeoutMillis = 0L) }
+                    lifecycleLock.withLock {
+                        if (engine === createdEngine) {
+                            engine = null
+                        }
+                    }
+                    currentCoroutineContext().ensureActive()
+                    val rootError = unwrapEngineStartError(err)
+                    lastError = rootError
+                    if (!isRetryableBindFailure(err)) {
+                        throw rootError
+                    }
+                    if (attempt < maxAttemptsForPort) {
+                        delay(50L * attempt)
+                    } else if (candidateIndex == candidatePorts.lastIndex) {
+                        throw rootError
+                    }
                 }
             }
         }
         throw lastError ?: IllegalStateException("Falha ao iniciar FsapHttpServer.")
+    }
+
+    internal fun buildCandidatePorts(preferredPort: Int, autoSelectOnConflict: Boolean): List<Int> {
+        if (preferredPort <= 0 || !autoSelectOnConflict) {
+            return listOf(preferredPort)
+        }
+        val candidates = mutableListOf(preferredPort)
+        var nextPort = preferredPort + 1
+        while (candidates.size < 17 && nextPort <= FsapConstants.MAX_VALID_PORT) {
+            if (nextPort != FsapConstants.UDP_DISCOVERY_PORT && nextPort >= FsapConstants.MIN_VALID_PORT) {
+                candidates.add(nextPort)
+            }
+            nextPort++
+        }
+        candidates.add(0)
+        return candidates.distinct()
     }
 
     private fun unwrapEngineStartError(error: Throwable): Throwable {

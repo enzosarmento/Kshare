@@ -1,6 +1,5 @@
 package br.edu.fileshare.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -83,8 +82,11 @@ val FileShareShapes = Shapes(
 )
 
 @Composable
+expect fun rememberPlatformDarkTheme(): Boolean
+
+@Composable
 fun FileShareTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = rememberPlatformDarkTheme(),
     content: @Composable () -> Unit,
 ) {
     MaterialTheme(

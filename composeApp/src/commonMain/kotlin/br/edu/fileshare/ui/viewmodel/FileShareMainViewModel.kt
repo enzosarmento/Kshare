@@ -318,13 +318,18 @@ class FileShareMainViewModel(
             onSuccess = { boundPort ->
                 nodeFsm.transition(LocalNodeEvent.EVT_PORTS_BOUND)
                 nodeFsm.transition(LocalNodeEvent.EVT_INITIAL_ANNOUNCE_SENT)
+                val fallbackBanner = if (port > 0 && boundPort != port) {
+                    "Porta TCP $port em uso; alternado automaticamente para a porta livre $boundPort."
+                } else {
+                    null
+                }
                 _uiState.update {
                     it.copy(
                         nodeState = nodeFsm.currentState(),
                         boundHttpPort = boundPort,
                         portDraft = boundPort.toString(),
                         localTlsFingerprint = runtime.localTlsFingerprint?.value,
-                        statusBanner = null,
+                        statusBanner = fallbackBanner,
                     )
                 }
             },
@@ -517,7 +522,13 @@ class FileShareMainViewModel(
         restartNodeInternal()
         if (nodeFsm.currentState() == LocalNodeState.AVAILABLE) {
             val modeLabel = if (nextTlsEnabled) "HTTPS/TLS" else "HTTP"
-            _uiState.update { it.copy(statusBanner = "Configuracoes aplicadas e servidor reiniciado ($modeLabel).") }
+            val actualPort = _uiState.value.boundHttpPort
+            val message = if (actualPort != parsedPort) {
+                "Configuracoes aplicadas ($modeLabel). Porta $parsedPort em uso; alternado automaticamente para $actualPort."
+            } else {
+                "Configuracoes aplicadas e servidor reiniciado ($modeLabel)."
+            }
+            _uiState.update { it.copy(statusBanner = message) }
         }
     }
 
