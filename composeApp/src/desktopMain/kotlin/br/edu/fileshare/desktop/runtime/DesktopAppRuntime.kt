@@ -99,11 +99,17 @@ class DesktopAppRuntime(
         },
     )
 
+    @Volatile
     private var activeIdentity = buildIdentity(initialAlias, initialPort)
     private val tokenManager = TransferTokenManager(clock = clock, logger = logger)
     val sessionManager: ServerTransferSessionManager = createSessionManager()
 
-    val httpClient = FsapHttpClient(localIdentity = activeIdentity, logger = logger, clock = clock)
+    val httpClient = FsapHttpClient(
+        localIdentity = activeIdentity,
+        logger = logger,
+        clock = clock,
+        localIdentityProvider = { activeIdentity },
+    )
 
     var manualConnector = createManualConnector(activeIdentity)
         private set
@@ -153,6 +159,7 @@ class DesktopAppRuntime(
                         port = port,
                         tlsSha256Fingerprint = tlsBundle?.certificateInfo?.sha256Fingerprint,
                     )
+                    httpClient.updateLocalIdentity(activeIdentity)
 
                     val server = FsapHttpServer(
                         config = FsapHttpServerConfig(
@@ -171,6 +178,7 @@ class DesktopAppRuntime(
                     )
                     val boundPort = server.start()
                     activeIdentity = activeIdentity.copy(httpPort = boundPort)
+                    httpClient.updateLocalIdentity(activeIdentity)
                     manualConnector.close()
                     manualConnector = createManualConnector(activeIdentity)
                     httpServer = server

@@ -60,6 +60,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerializationException
+import kotlin.concurrent.Volatile
 
 /**
  * Endereco HTTP/HTTPS TCP de um par remoto na rede local.
@@ -164,7 +165,7 @@ fun interface TransferUploadProgressListener {
  * conduzindo a [TransferStateMachine] do lado remetente sem dependencia de UI.
  */
 class FsapHttpClient(
-    private val localIdentity: DeviceIdentity,
+    localIdentity: DeviceIdentity,
     private val logger: FsapLogger? = null,
     private val clock: Clock = SystemClock,
     private val uuidGenerator: UuidGenerator = PlatformUuidGenerator,
@@ -173,7 +174,17 @@ class FsapHttpClient(
     private val streamTimeoutMs: Long = FsapConstants.T_STREAM_READ_TIMEOUT_MS,
     private val providedHttpClient: HttpClient? = null,
     private val allowUnpinnedSelfSignedTls: Boolean = false,
+    private val localIdentityProvider: (() -> DeviceIdentity)? = null,
 ) {
+    @Volatile
+    private var currentLocalIdentity: DeviceIdentity = localIdentity
+
+    private val localIdentity: DeviceIdentity
+        get() = localIdentityProvider?.invoke() ?: currentLocalIdentity
+
+    fun updateLocalIdentity(identity: DeviceIdentity) {
+        currentLocalIdentity = identity
+    }
     private val ownsHttpClient: Boolean = providedHttpClient == null
     private val tlsClientsLock = PlatformLock()
     private val tlsClientsByFingerprint = LinkedHashMap<String, HttpClient>()

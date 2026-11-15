@@ -136,6 +136,27 @@ class PeerRegistry(
     }
 
     /**
+     * Atualiza imediatamente o alias visivel de um par ja conhecido quando o nome muda em requisicoes recebidas.
+     */
+    suspend fun updatePeerAliasIfPresent(
+        deviceId: String,
+        newAlias: String,
+    ): Boolean {
+        val cleanAlias = newAlias.trim()
+        if (cleanAlias.isEmpty()) return false
+        return mutex.withLock {
+            val entry = entries[deviceId] ?: return@withLock false
+            if (entry.peer.identity.alias == cleanAlias) return@withLock false
+            entry.peer = entry.peer.copy(
+                identity = entry.peer.identity.copy(alias = cleanAlias),
+                lastSeenEpochMillis = clock.epochMillis(),
+            )
+            publishSnapshotLocked()
+            true
+        }
+    }
+
+    /**
      * Remove imediatamente um par que anunciou saida graciosa via `BYE`.
      */
     suspend fun removeByBye(

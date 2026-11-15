@@ -19,8 +19,14 @@ import br.edu.fileshare.network.client.FsapHttpClient
 import br.edu.fileshare.network.client.FsapPeerEndpoint
 import br.edu.fileshare.network.discovery.ManualConnectResult
 import br.edu.fileshare.network.discovery.MulticastTransport
+import br.edu.fileshare.network.discovery.PeerRegistry
 import br.edu.fileshare.network.discovery.UdpDatagram
+import br.edu.fileshare.network.server.FsapHttpServer
+import br.edu.fileshare.network.server.FsapHttpServerConfig
 import br.edu.fileshare.network.server.InteractiveTransferApprovalCoordinator
+import br.edu.fileshare.network.server.ServerTransferSessionManager
+import br.edu.fileshare.network.server.TransferTokenManager
+import br.edu.fileshare.network.server.routes.FsapTransferServerServices
 import br.edu.fileshare.network.transfer.SendFilesOutcome
 import br.edu.fileshare.network.transfer.TransferCoordinator
 import br.edu.fileshare.protocol.FsapConstants
@@ -29,6 +35,7 @@ import br.edu.fileshare.protocol.model.DeviceType
 import br.edu.fileshare.protocol.model.PlatformType
 import br.edu.fileshare.protocol.statemachine.LocalNodeState
 import br.edu.fileshare.protocol.statemachine.TransferState
+import br.edu.fileshare.storage.InMemoryFileSink
 import br.edu.fileshare.storage.InMemoryFileSource
 import br.edu.fileshare.ui.viewmodel.FileShareMainViewModel
 import br.edu.fileshare.ui.viewmodel.IncomingApprovalViewModel
@@ -483,6 +490,158 @@ class AndroidFileShareRuntimeTest {
                 assertTrue(finalConnect is ManualConnectResult.Connected, "Esperado Connected final via TLS, obtido $finalConnect")
                 assertEquals("Galaxy-Final", finalConnect.peer.identity.alias)
             } finally {
+                runtime.close()
+                uiScope.cancel()
+                controller.close()
+                tempRoot.deleteRecursively()
+            }
+        }
+
+    @Test
+    fun renamingAliasPropagatesNewSenderNameToReceiverModalAndTransfersTab() =
+        runBlocking {
+            val tempRoot = Files.createTempDirectory("fsap-android-alias-xfer-").toFile()
+            val logger = InMemoryFsapLogger()
+            val controllerFlow = MutableStateFlow<FsapForegroundNodeController?>(null)
+            val senderApproval = InteractiveTransferApprovalCoordinator()
+            val host = RecordingHost()
+
+            val controller = FsapForegroundNodeController(
+                localDeviceId = PlatformUuidGenerator.nextUuidV4(),
+                initialAlias = "Galaxy-Tab-Antigo",
+                deviceType = DeviceType.TABLET,
+                initialPort = 0,
+                fileSink = AndroidFileSink(
+                    stagingDirectory = File(tempRoot, "staging"),
+                    publisher = DirectoryDestinationPublisher(File(tempRoot, "downloads")),
+                    logger = logger,
+                ),
+                multicastTransportFactory = {
+                    AndroidMulticastTransport(
+                        lockManager = AndroidMulticastLockManager(lockFactory = { FakeMulticastLock() }, logger = logger),
+                        delegate = InMemoryMulticastTransport(),
+                        logger = logger,
+                    )
+                },
+                localAddressesProvider = { listOf("127.0.0.1") },
+                wakeLockManager = AndroidPartialWakeLockManager(factory = { FakeWakeLock() }, logger = logger),
+                serviceHost = host,
+                approvalHandler = senderApproval,
+                logger = logger,
+            )
+
+            val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val runtime = AndroidFileShareRuntime(
+                localDeviceId = controller.localDeviceId,
+                initialAlias = "Galaxy-Tab-Antigo",
+                initialPort = 0,
+                controllerFlow = controllerFlow,
+                approvalCoordinator = senderApproval,
+                startServiceAndAwaitController = { _, _ ->
+                    controllerFlow.value = controller
+                    controller
+                },
+                filePicker = { emptyList() },
+                initialAddressesProvider = { listOf("127.0.0.1") },
+                ensureNotificationPermission = { true },
+                logger = logger,
+                parentScope = uiScope,
+                ownsScope = false,
+            )
+
+            val receiverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            val receiverSink = InMemoryFileSink()
+            val receiverApproval = InteractiveTransferApprovalCoordinator()
+            val receiverIdentity = DeviceIdentity(
+                deviceId = PlatformUuidGenerator.nextUuidV4(),
+                alias = "Desktop-Receptor",
+                deviceType = DeviceType.DESKTOP,
+                platform = PlatformType.LINUX,
+                httpPort = 0,
+            )
+            val receiverSessions = ServerTransferSessionManager(
+                tokenManager = TransferTokenManager(logger = logger),
+                fileSink = receiverSink,
+                scope = receiverScope,
+                logger = logger,
+            )
+            val receiverRegistry = PeerRegistry(logger = logger)
+            val receiverClient = FsapHttpClient(localIdentity = receiverIdentity, logger = logger)
+            val receiverCoordinator = TransferCoordinator(
+                httpClient = receiverClient,
+                parentScope = receiverScope,
+                serverSessionManager = receiverSessions,
+                logger = logger,
+                peerRegistry = receiverRegistry,
+            )
+            val receiverApprovalVm = IncomingApprovalViewModel(
+                coordinator = receiverApproval,
+                scope = receiverScope,
+                countdownTickMs = 0L,
+            )
+            val receiverProgressVm = TransferProgressViewModel(
+                snapshotsFlow = receiverCoordinator.progressTracker.transfers,
+                cancelPort = { id, reason -> receiverCoordinator.cancelTransfer(id, reason) },
+                scope = receiverScope,
+            )
+            val receiverServer = FsapHttpServer(
+                config = FsapHttpServerConfig(identity = receiverIdentity, host = "127.0.0.1", port = 0),
+                logger = logger,
+                transferServices = FsapTransferServerServices(
+                    sessionManager = receiverSessions,
+                    fileSink = receiverSink,
+                    approvalHandler = receiverApproval,
+                ),
+            )
+
+            try {
+                val receiverPort = receiverServer.start()
+                val mainVm = FileShareMainViewModel(runtime = runtime, scope = uiScope, logger = logger)
+                mainVm.startNodeInternal()
+                withTimeout(3_000) {
+                    while (mainVm.uiState.value.nodeState != LocalNodeState.AVAILABLE) delay(10)
+                }
+
+                // Conecta no servidor receptor e seleciona-o na UI Android
+                val connectRes = runtime.connectByManualIp("127.0.0.1", receiverPort)
+                assertTrue(connectRes is ManualConnectResult.Connected)
+                withTimeout(3_000) {
+                    while (mainVm.uiState.value.peers.isEmpty()) delay(10)
+                }
+
+                // Renomeia o alias na aba Configuracoes e aplica reinicio
+                mainVm.updateSettingsDraft(
+                    alias = "Tablet-S6-Enzo",
+                    portText = mainVm.uiState.value.boundHttpPort.toString(),
+                    tlsEnabled = false,
+                )
+                mainVm.applySettingsAndRestartInternal()
+                assertEquals("Tablet-S6-Enzo", controller.localAlias.value)
+
+                // Envia arquivo do Android para Desktop apos renomear
+                mainVm.addSources(listOf(InMemoryFileSource("foto.jpg", ByteArray(4096) { 7 })))
+                mainVm.sendSelectedFilesInternal()
+
+                withTimeout(5_000) {
+                    while (receiverApprovalVm.uiState.value.activePrompt == null) delay(10)
+                }
+                val prompt = assertNotNull(receiverApprovalVm.uiState.value.activePrompt)
+                assertEquals("Tablet-S6-Enzo", prompt.senderAlias)
+
+                receiverApprovalVm.acceptActive()
+                withTimeout(5_000) {
+                    while (receiverProgressVm.uiState.value.items.none { it.state == TransferState.COMPLETED }) {
+                        delay(10)
+                    }
+                }
+                val transferItem = receiverProgressVm.uiState.value.items.first()
+                assertEquals("Tablet-S6-Enzo", transferItem.peerAlias)
+            } finally {
+                receiverCoordinator.close()
+                receiverClient.close()
+                receiverServer.stop()
+                receiverSessions.close()
+                receiverScope.cancel()
                 runtime.close()
                 uiScope.cancel()
                 controller.close()
