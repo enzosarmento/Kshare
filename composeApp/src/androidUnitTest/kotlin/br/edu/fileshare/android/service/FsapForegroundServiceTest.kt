@@ -483,6 +483,7 @@ class FsapForegroundServiceTest {
             wakeLockManager = AndroidPartialWakeLockManager(factory = { wakeLockHandle }, logger = logger),
             serviceHost = host,
             logger = logger,
+            autoSelectPortOnConflict = false,
         )
 
         val blockerSocket = ServerSocket(0)
@@ -506,6 +507,58 @@ class FsapForegroundServiceTest {
             assertEquals(LocalNodeState.AVAILABLE, controller.nodeState.value)
             assertTrue(wakeLockHandle.isHeld)
             assertTrue(multicastLockHandle.isHeld)
+        } finally {
+            runCatching { blockerSocket.close() }
+            controller.close()
+            tempRoot.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun occupiedPortAutomaticallySelectsNextAvailablePortOnStart() = runBlocking {
+        val tempRoot = Files.createTempDirectory("fsap-autoport-").toFile()
+        val logger = InMemoryFsapLogger()
+        val wakeLockHandle = FakeWakeLockHandle()
+        val multicastLockHandle = FakeMulticastLockHandle()
+        val host = RecordingServiceHost()
+
+        val controller = FsapForegroundNodeController(
+            localDeviceId = PlatformUuidGenerator.nextUuidV4(),
+            initialAlias = "Pixel-AutoPort",
+            initialPort = 0,
+            fileSink = AndroidFileSink(
+                stagingDirectory = File(tempRoot, "staging"),
+                publisher = DirectoryDestinationPublisher(File(tempRoot, "downloads")),
+                logger = logger,
+            ),
+            multicastTransportFactory = {
+                AndroidMulticastTransport(
+                    lockManager = AndroidMulticastLockManager(lockFactory = { multicastLockHandle }, logger = logger),
+                    delegate = FakeMulticastTransport(),
+                    logger = logger,
+                )
+            },
+            localAddressesProvider = { listOf("127.0.0.1") },
+            wakeLockManager = AndroidPartialWakeLockManager(factory = { wakeLockHandle }, logger = logger),
+            serviceHost = host,
+            logger = logger,
+        )
+
+        val blockerSocket = ServerSocket(0)
+        try {
+            val occupiedPort = blockerSocket.localPort
+            val startResult = controller.startNode(alias = "Pixel-AutoPort", port = occupiedPort)
+
+            assertTrue(startResult.isSuccess, "Fallback de porta deveria iniciar com sucesso: ${startResult.exceptionOrNull()}")
+            val boundPort = startResult.getOrThrow()
+            assertTrue(boundPort != occupiedPort, "Porta selecionada ($boundPort) deve diferir da porta ocupada ($occupiedPort).")
+            assertEquals(boundPort, controller.boundPort.value)
+            assertEquals(LocalNodeState.AVAILABLE, controller.nodeState.value)
+
+            // Chamada subsequente com a mesma porta configurada (ex: onStartCommand) preserva porta efetiva sem reiniciar
+            val idempotentResult = controller.startNode(alias = "Pixel-AutoPort", port = occupiedPort)
+            assertEquals(boundPort, idempotentResult.getOrThrow())
+            assertEquals(LocalNodeState.AVAILABLE, controller.nodeState.value)
         } finally {
             runCatching { blockerSocket.close() }
             controller.close()

@@ -138,7 +138,18 @@ class AndroidFileShareRuntime(
     override suspend fun startNode(alias: String, port: Int): Result<Int> =
         startNode(alias = alias, port = port, tlsEnabled = false)
 
-    override suspend fun startNode(alias: String, port: Int, tlsEnabled: Boolean): Result<Int> {
+    override suspend fun startNode(alias: String, port: Int, tlsEnabled: Boolean): Result<Int> =
+        startOrRestartNode(alias = alias, port = port, tlsEnabled = tlsEnabled, forceRestart = false)
+
+    override suspend fun restartNode(alias: String, port: Int, tlsEnabled: Boolean): Result<Int> =
+        startOrRestartNode(alias = alias, port = port, tlsEnabled = tlsEnabled, forceRestart = true)
+
+    private suspend fun startOrRestartNode(
+        alias: String,
+        port: Int,
+        tlsEnabled: Boolean,
+        forceRestart: Boolean,
+    ): Result<Int> {
         runCatching { ensureNotificationPermission() }.onFailure { err ->
             if (err is CancellationException) throw err
             logger.warn(
@@ -157,7 +168,11 @@ class AndroidFileShareRuntime(
         }
 
         controller.setReceptionEnabled(true)
-        return controller.startNode(alias = alias, port = port, tlsEnabled = tlsEnabled)
+        return if (forceRestart) {
+            controller.restartNode(alias = alias, port = port, tlsEnabled = tlsEnabled)
+        } else {
+            controller.startNode(alias = alias, port = port, tlsEnabled = tlsEnabled)
+        }
     }
 
     override suspend fun stopNode() {

@@ -47,6 +47,7 @@ class FileShareMainViewModelTest {
         override val externalBoundPort: StateFlow<Int> = externalPortFlow
 
         var failNextStart: Boolean = false
+        var resolvedPortOverride: Int? = null
         var pickedFilesQueue: List<FileSource> = emptyList()
         var lastStartedAlias: String? = null
         var lastStartedPort: Int? = null
@@ -61,7 +62,7 @@ class FileShareMainViewModelTest {
                 failNextStart = false
                 Result.failure(IllegalStateException("Porta em uso"))
             } else {
-                Result.success(port)
+                Result.success(resolvedPortOverride ?: port)
             }
         }
 
@@ -257,6 +258,33 @@ class FileShareMainViewModelTest {
         runCurrent()
         assertEquals(LocalNodeState.STOPPED, vm.uiState.value.nodeState)
         assertNotNull(vm.uiState.value.statusBanner)
+    }
+
+    @Test
+    fun `fallback automatico de porta atualiza boundHttpPort, portDraft e exibe banner informativo`() = runTest {
+        val runtime = FakeRuntimePort()
+        runtime.resolvedPortOverride = 53319
+        val vm = FileShareMainViewModel(runtime, backgroundScope)
+        runCurrent()
+
+        vm.startNodeInternal()
+        assertEquals(LocalNodeState.AVAILABLE, vm.uiState.value.nodeState)
+        assertEquals(53319, vm.uiState.value.boundHttpPort)
+        assertEquals("53319", vm.uiState.value.portDraft)
+        assertEquals(
+            "Porta TCP 53317 em uso; alternado automaticamente para a porta livre 53319.",
+            vm.uiState.value.statusBanner,
+        )
+
+        runtime.resolvedPortOverride = 54001
+        vm.updateSettingsDraft("Desktop-Lab", "54000")
+        vm.applySettingsAndRestartInternal()
+        assertEquals(54001, vm.uiState.value.boundHttpPort)
+        assertEquals("54001", vm.uiState.value.portDraft)
+        assertEquals(
+            "Configuracoes aplicadas (HTTP). Porta 54000 em uso; alternado automaticamente para 54001.",
+            vm.uiState.value.statusBanner,
+        )
     }
 
     @Test
