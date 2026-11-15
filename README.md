@@ -122,14 +122,29 @@ java -jar composeApp/build/libs/fileshare-server-all.jar --help
 
 ### 3. App Android e Emulador
 
-Compilar e instalar o APK de debug em um dispositivo físico ou emulador conectado (`Android 8.0+ / API 26–35`):
-```bash
-./gradlew :composeApp:assembleDebug
-adb install -r composeApp/build/outputs/apk/debug/composeApp-debug.apk
-# ou instalar diretamente pelo Gradle:
-./gradlew :composeApp:installDebug
-```
-O arquivo é gerado em [`composeApp/build/outputs/apk/debug/composeApp-debug.apk`](composeApp/build/outputs/apk/debug/composeApp-debug.apk). Também é possível abrir a raiz do projeto no **Android Studio** e executar a configuração `composeApp`, ou arrastar o APK para dentro de um emulador em execução.
+- **Gerar apenas o arquivo `.apk` (sem precisar de celular ou emulador conectado):**
+  ```bash
+  ./gradlew :composeApp:assembleDebug
+  ```
+  O arquivo é gerado em [`composeApp/build/outputs/apk/debug/composeApp-debug.apk`](composeApp/build/outputs/apk/debug/composeApp-debug.apk).
+
+- **Instalar diretamente em um aparelho físico ou emulador em execução (`Android 8.0+ / API 26–35`):**
+  ```bash
+  # Verifique antes se há ao menos 1 dispositivo com status "device"
+  adb devices -l
+
+  # Caso não haja emulador aberto, liste os AVDs e inicie um deles:
+  emulator -list-avds
+  emulator -avd Pixel_9
+
+  # Então instale via Gradle ou diretamente via ADB:
+  ./gradlew :composeApp:installDebug
+  # ou:
+  adb install -r composeApp/build/outputs/apk/debug/composeApp-debug.apk
+  ```
+  > **Importante:** `:composeApp:installDebug` falha com `DeviceException: No connected devices!` se não houver nenhum emulador aberto ou aparelho conectado com *Depuração USB*/*Depuração por Wi-Fi* autorizada em `adb devices -l`. Para apenas gerar o APK e copiá-lo manualmente para o celular, utilize `:composeApp:assembleDebug`.
+
+  Também é possível abrir a raiz do projeto no **Android Studio** e executar a configuração `composeApp`, ou arrastar o APK para dentro de um emulador em execução.
 
 #### Conectando Emulador Android <-> PC na mesma máquina
 Como o Emulador Android opera atrás de NAT virtual (`10.0.2.15`), pacotes UDP Multicast não atravessam entre o emulador e o sistema hospedeiro. Utilize a **Conexão Manual por IP (`IDENTIFY`)**:
