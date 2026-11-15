@@ -1,6 +1,6 @@
 # Sistema de Gestão de Tasks e Backlog — FileShare
 
-> **Status Global do Backlog:** `47 tasks` especificadas — **100% com status inicial `TODO`**.  
+> **Status Global do Backlog:** **`47 / 47 tasks concluídas` (`DONE`)** — Milestones **M0, M1, M2, M3, M4, M5 e M6 concluídas** (`CURRENT_MILESTONE = "M6 - Concluida"`).  
 > **Regra de Governança:** Nenhuma task possui atribuição nominal prévia. A distribuição será realizada pela equipe de 4 integrantes a cada sprint/milestone respeitando o grafo de dependências.
 
 ---

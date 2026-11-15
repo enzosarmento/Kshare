@@ -1,7 +1,7 @@
 # Fundamentação Acadêmica e Especificação de Requisitos — FileShare
 
-> **Status do Documento:** Base Acadêmica e Engenharia de Requisitos (Milestone M0)  
-> **Estado de Implementação:** Nenhuma funcionalidade de rede, interface ou transferência foi implementada nesta etapa. Este documento fundamenta o relatório acadêmico da disciplina de Redes de Computadores e orienta o desenvolvimento das Milestones M1 a M6.
+> **Status do Documento:** Relatório Acadêmico Consolidado e Especificação de Requisitos (**Milestone M6 — Projeto Concluído**)  
+> **Estado de Implementação:** **`47 / 47 tasks` concluídas (`DONE`)** abrangendo núcleo KMP `FSAP/1.0`, descoberta UDP Multicast (`239.255.70.83:53318`), transferência HTTP/TCP em streaming (`64 KB`, `.part`, `SHA-256`), aplicação Desktop (GUI Compose + Servidor CLI independente), aplicação Android (`MulticastLock`, SAF, `MediaStore.Downloads`, `FsapForegroundService`), endurecimento anti-DoS/TLS opcional e suíte de conformidade `TC-FSAP-001` a `TC-FSAP-026`. Este documento fundamenta o relatório acadêmico da disciplina de Redes de Computadores e registra a consolidação final das Milestones M0 a M6.
 
 ---
 
@@ -94,7 +94,7 @@ A especificação completa da comunicação encontra-se distribuída nos documen
 
 ## 4. Engenharia de Requisitos (Seção 9.4)
 
-### 4.1. Requisitos Funcionais (RF) — Status: Planejados (Não Implementados)
+### 4.1. Requisitos Funcionais (RF) — Status: Implementados e Validados (`DONE` — M1 a M6)
 
 | ID | Requisito Funcional | Prioridade | Rastreabilidade (FSAP / Tasks) |
 | :--- | :--- | :---: | :--- |
@@ -156,6 +156,53 @@ Para total transparência acadêmica e de engenharia, a tabela abaixo diferencia
 | **Decisão Ratificada (`TASK-ARC-001`)** | Endereço de grupo Multicast IPv4 `239.255.70.83`, porta UDP `53318` e porta TCP padrão `53317`. | **Aprovada** | [protocol-fsap.md](file:///home/enzosarmento/Documents/2026.2/redes/fileshare/docs/protocol-fsap.md) |
 | **Decisão Ratificada (`TASK-ARC-002`)** | Uso do motor **Ktor (`CIO` engine)** para o servidor e cliente HTTP/TCP combinado com `java.net.MulticastSocket` para o plano UDP. | **Aprovada** | [ADR-004](file:///home/enzosarmento/Documents/2026.2/redes/fileshare/docs/decisions/ADR-004-escolha-ktor-vs-java-net-sockets.md) |
 | **Decisão Ratificada (`TASK-ARC-001`)** | Modelo de confirmação síncrona (long-polling HTTP de até 60 s no `TRANSFER_REQUEST`) vs. confirmação assíncrona via webhook reverso. | **Aprovada** | [protocol-fsap.md](file:///home/enzosarmento/Documents/2026.2/redes/fileshare/docs/protocol-fsap.md) |
-| **Decisão Ratificada (`TASK-ARC-002`)** | Uso de `ForegroundService` (`dataSync`) no Android para manter o servidor HTTP e o `MulticastLock` ativos durante sessões de recepção. | **Aprovada** | [ADR-006](file:///home/enzosarmento/Documents/2026.2/redes/fileshare/docs/decisions/ADR-006-armazenamento-e-ciclo-de-vida-android.md) |
-| **Funcionalidades do Sistema (RF-01 a RF-16)** | Implementação de sockets, descoberta UDP, servidor/cliente HTTP, streaming de arquivos e telas em Compose. | **Planejada (`TODO`)** | [backlog.md](file:///home/enzosarmento/Documents/2026.2/redes/fileshare/tasks/backlog.md) |
+| **Decisão Ratificada (`TASK-ARC-002`)** | Uso de `ForegroundService` (`dataSync`) no Android para manter o servidor HTTP e o `MulticastLock` ativos durante sessões de recepção. | **Implementada e Validada** | [ADR-006](file:///home/enzosarmento/Documents/2026.2/redes/fileshare/docs/decisions/ADR-006-armazenamento-e-ciclo-de-vida-android.md) |
+| **Funcionalidades do Sistema (RF-01 a RF-16)** | Implementação completa de sockets UDP/TCP, descoberta multicast, servidor/cliente HTTP Ktor CIO, streaming de arquivos 64 KB com `.part` + SHA-256, UI Compose (Desktop/Android), TLS opcional e suíte `TC-FSAP-001..026`. | **Implementada e Validada (`DONE` — 47/47)** | [backlog.md](file:///home/enzosarmento/Documents/2026.2/redes/fileshare/tasks/backlog.md) |
+
+---
+
+## 6. Relatório Acadêmico Final e Consolidação da Implementação (`TASK-ARC-003` — Milestone M6)
+
+Esta seção consolida as evidências arquiteturais, os parâmetros operacionais dos protocolos **UDP/TCP**, os resultados de conformidade **`TC-FSAP-001` a `TC-FSAP-026`** e o roteiro de verificação da entrega final (`CURRENT_MILESTONE = "M6 - Concluida"`, `47 / 47 tasks` em `DONE`).
+
+### 6.1. Camada de Transporte e Fluxos de Comunicação (`FSAP/1.0`)
+
+1. **Descoberta Automática em Rede Local (UDP Multicast `239.255.70.83:53318`):**
+   - **Anúncio Periódico (`ANNOUNCE`) e Busca Ativa (`DISCOVER`):** ao ingressar em `DISCOVERING`, o nó emite datagrama `DISCOVER` para `239.255.70.83:53318`; pares ativos respondem com `ANNOUNCE` aplicando *jitter* aleatório (`50..300 ms`) para evitar tempestade de colisões UDP em redes Wi-Fi, mantendo batimento periódico a cada `5000 ms` (`T_ANNOUNCE_INTERVAL`).
+   - **Filtro de Interfaces e Loopback (`JvmNetworkInterfaceProvider`):** exclui interfaces virtuais/inativas (`loopback`, `docker0`, `veth`, WSL2, túnel VPN) priorizando sub-redes privadas locais; datagramas próprios (`senderId == localDeviceId`) e pacotes inválidos ou acima do buffer (`1024 bytes`) são descartados silenciosamente sem amplificação de erro.
+   - **Expiração TTL e Despedida Graciosa (`BYE`):** entradas em `PeerRegistry` entram em `STALE` após `12 s` e são removidas (`DISCONNECTED`) em `18 s` (`T_PEER_TTL`), ou imediatamente ao receber datagrama `BYE`.
+   - **Fallback Determinístico (TCP `IDENTIFY`):** em redes Wi-Fi com *AP Isolation* onde multicast é filtrado, o fluxo manual envia `POST /fsap/v1/identify` para `IP:Porta`, registrando o par diretamente na `PeerRegistry`.
+   - **Adaptador Android (`AndroidMulticastLockManager`):** adquire `WifiManager.MulticastLock` com contagem não referenciada somente enquanto descoberta/serviço estão ativos e libera no encerramento.
+
+2. **Transferência Binária e Controle de Sessão (HTTP sobre TCP `53317`, TLS opcional):**
+   - **Negociação e Autorização (`TRANSFER_REQUEST` → `TRANSFER_ACCEPT` / `TRANSFER_REJECT`):** envio do manifesto JSON de `1..N` arquivos com tamanho e `SHA-256` pré-calculado; aprovação humana explícita com timeout `T_APPROVAL_TIMEOUT = 60 s` gera `transferToken` criptográfico efêmero (`X-FSAP-Transfer-Token`, vinculado a `senderId` e `transferId`).
+   - **Streaming Binário $O(1)$ (`64 KB`), Commit Atômico (`.part`) e Integridade (`SHA-256`):** `IncrementalSha256Channel` lê, transmite e grava em disco usando buffers fixos de `65536 bytes` (`64 KB`). No receptor, bytes chegam a arquivos temporários `.part` (`.fsap-staging` no Desktop; `cacheDir/incoming/` promovido para `MediaStore.Downloads` ou árvore SAF no Android) com política de não-sobrescrita (`documento (1).ext`) e remoção imediata do `.part` em qualquer erro, timeout ou cancelamento bilateral.
+   - **Resiliência, Anti-DoS e Endurecimento TLS (`M6`):**
+     - Timeouts estritos: conexão TCP (`5 s`), aprovação humana (`60 s`), inatividade de token (`30 s`), estagnação de leitura no stream (`T_STREAM_READ_TIMEOUT = 15 s`) e encerramento gracioso (`T_SHUTDOWN_GRACE = 2000 ms`);
+     - Limite de corpo JSON (`MAX_JSON_BODY_BYTES = 256 KB` em `Content-Length` e *chunked*), corte imediato de overflow em stream (`SIZE_MISMATCH`), reserva concorrente de espaço em disco com mapeamento `ENOSPC` → `HTTP 507` (`INSUFFICIENT_STORAGE`), e controle de sessões concorrentes simultâneas no `ServerTransferSessionManager` (rejeição `BUSY` ao exceder capacidade e liberação determinística de slots ao concluir);
+     - **TLS 1.3 / Certificado Efêmero Opcional (`--tls` / alternância nas UIs Desktop e Android):** `PlatformTlsProvider` gera certificado autoassinado RSA-2048 X.509 por sessão e divulga `fingerprint` SHA-256 nas capacidades do nó; clientes aplicam modelo TOFU (*Trust On First Use*), validam assinatura do par remoto e exibem sufixo curto de 8 caracteres hexadecimais para conferência visual entre usuários.
+
+### 6.2. Evidências de Conformidade (`TC-FSAP-001` a `TC-FSAP-026`) e Testes Automatizados
+
+| Faixa / Foco da Suíte | O que foi validado | Suítes de Teste Executadas |
+| :--- | :--- | :--- |
+| **Núcleo, Estado e Segurança Base** | Contratos JSON `FSAP/1.0`, validadores, 18 transições de `TransferState`, `LocalNodeState`/`PeerConnectionState`, `FileNameSanitizer` (*Path Traversal* e nomes Windows), `TransferTokenManager` e `IncrementalSha256Channel` | `commonTest` (`ProtocolM1ConformanceTest`, `StateMachinesTest`, `FileNameSanitizerTest`, `TransferTokenManagerTest`, `IncrementalSha256ChannelTest`, `ViewModel*Test`) |
+| **`TC-FSAP-001` a `TC-FSAP-005`** | `ANNOUNCE`, resposta `DISCOVER` com filtro de auto-eco, descarte de datagramas malformados, expiração TTL `18 s` (`STALE` em `12 s`) e remoção imediata por `BYE` | `UdpDiscoveryConformanceTest`, `PeerRegistryTest`, `NetworkInterfaceFilterTest`, `DesktopDiscoveryIntegrationTest`, `JvmMulticastTransportTest` |
+| **`TC-FSAP-006` a `TC-FSAP-025`** | Handshake `IDENTIFY` e incompatibilidade `MAJOR`, `TRANSFER_REQUEST` / `ACCEPT` / `REJECT`, bloqueio *Path Traversal*, `HTTP 507`, timeout `60 s`, bloqueio sem `transferToken`, streaming multi-chunk `64 KB`, lote multi-arquivo, `TRANSFER_STATUS`, cancelamento bilateral (remetente/destinatário), commit atômico + `HASH_MISMATCH`, stream truncado (`SIZE_MISMATCH`), timeout `15 s` (`STREAM_TIMEOUT`), `INVALID_STATE_TRANSITION`, sufixo incremental de não-sobrescrita e arquivo `0 bytes` | `HttpTcpM2ConformanceTest`, `DisconnectAndTimeoutRecoveryTest`, `BilateralTransferCancelTest`, `TransferPrepareRouteTest`, `TransferContentRouteTest`, `TransferControlRouteTest`, `FsapHttpServerIdentifyTest` |
+| **`TC-FSAP-026` e Hardening `M6`** | 4 clientes simultâneos transferindo lotes multi-arquivo com colisão de nomes sem corrupção nem `.part` residual; cancelamento mid-stream isolado em 1 cliente sem afetar 3 pares concorrentes; rejeição `BUSY` acima do limite de sessões e recuperação de slots; limites anti-DoS (`256 KB` JSON, reserva concorrente, `ENOSPC`); TLS opcional, rejeição MITM e TOFU | `ConcurrentTransfersTest`, `ResourceExhaustionSecurityTest`, `TlsTransportIntegrationTest` (`desktopTest`) |
+| **Interoperabilidade Desktop ↔ Android** | Servidor Headless ↔ Cliente GUI ↔ Runtime Android (`MulticastLock`, `FsapForegroundService`, SAF `OpenMultipleDocuments`, `cacheDir` → `MediaStore.Downloads`, cancelamento via notificação) nas 4 direções | `CrossPlatformDesktopInteropTest` (`desktopTest`), `AndroidEndToEndTransferIntegrationTest`, `AndroidFileShareRuntimeTest`, `FsapForegroundServiceTest`, `AndroidStorageTest`, `AndroidMulticastLockManagerTest` (`androidUnitTest`) |
+
+### 6.3. Inspeção de Tráfego e Verificação Reprodutível em Bancada
+
+- **Filtros de Captura (`Wireshark` / `tcpdump`):**
+  - Display filter Wireshark: `udp.port == 53318 or tcp.port == 53317 or tcp.port == 53319`
+  - Capture filter `tcpdump`: `tcp port 53317 or tcp port 53319 or udp port 53318`
+- **Execução Unificada de Verificação e Build:**
+  - `./scripts/check-structure.sh` — verifica integridade estrutural de documentos, especificações, ADRs e skills;
+  - `./gradlew :composeApp:desktopTest` — executa toda a suíte `commonTest` + `desktopTest` (`TC-FSAP-001..026`, resiliência, anti-DoS, TLS);
+  - `./gradlew :composeApp:testDebugUnitTest :composeApp:assembleDebug` — executa testes Android (`SAF`, `MediaStore`, `MulticastLock`, `FsapForegroundService`, E2E) e gera o APK Debug em `composeApp/build/outputs/apk/debug/composeApp-debug.apk`;
+  - `./scripts/run-interop-checks.sh` — executa em sequência a verificação estrutural, os testes Desktop e os testes/build Android, além de resumir os comandos de bancada LAN com `adb install`.
+- **Execução dos Nós para Demonstração em Rede Local:**
+  - Servidor Desktop Independente (Headless/CLI): `./scripts/run-desktop-server.sh --port 53319 --alias Server-Lab` (adicione `--tls` para ativar TLS opcional ou `--jar` para empacotar e rodar via JAR executável);
+  - Cliente Gráfico Desktop (Compose): `./scripts/run-desktop-ui.sh`.
 

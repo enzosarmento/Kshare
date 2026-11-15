@@ -1,7 +1,7 @@
 # FileShare — Transferência de Arquivos Multiplataforma em Rede Local (FSAP/1.0)
 
-> **Status Atual do Projeto:** **Milestone M3 — Descoberta Automática Concluída** (`CURRENT_MILESTONE = "M3 - Concluida"`).  
-> **Progresso do Backlog:** **36 / 47 tasks concluídas (`DONE`)** — **Milestones M0, M1, M2 e M3** finalizadas; **11 tasks** pendentes entre **M4, M5 e M6** ([`tasks/backlog.md`](tasks/backlog.md)).
+> **Status Atual do Projeto:** **Milestone M6 — Concluída (Projeto Finalizado)** (`CURRENT_MILESTONE = "M6 - Concluida"`).  
+> **Progresso do Backlog:** **`47 / 47 tasks concluídas` (`DONE`)** — Todas as **Milestones M0, M1, M2, M3, M4, M5 e M6** implementadas e validadas ([`tasks/backlog.md`](tasks/backlog.md) e [`docs/academic-foundation.md`](docs/academic-foundation.md)).
 
 ---
 
@@ -26,15 +26,16 @@ O **FileShare** é uma aplicação multiplataforma inspirada no *LocalSend* para
 | **M1** | Núcleo `FSAP/1.0` (`commonMain`), Sanitização, `ServerMainKt` e Handshake `IDENTIFY` | **Concluída** | `11 / 11` |
 | **M2** | Transferência Desktop ↔ Desktop (Ktor HTTP, streaming 64 KB, `.part`, SHA-256, UI Desktop, `TC-FSAP-006`..`025`) | **Concluída** | `16 / 16` |
 | **M3** | Descoberta Automática via UDP Multicast (`ANNOUNCE`, `DISCOVER`, `BYE`), `PeerRegistry` com TTL `18 s` e `TC-FSAP-001`..`005` | **Concluída** | `6 / 6` |
-| **M4** | Integração Android (`MulticastLock`, SAF / `MediaStore.Downloads`, `FsapForegroundService`) | **Pendente** | `0 / 3` |
-| **M5** | Transferência Desktop ↔ Android (UI Compose Android e interoperabilidade em LAN real) | **Pendente** | `0 / 3` |
-| **M6** | Hardening (timeout de stream `15 s`, limites anti-DoS, TLS opcional), estresse (`TC-FSAP-026`) e relatório final | **Pendente** | `0 / 5` |
+| **M4** | Integração Android (`MulticastLock`, SAF / `MediaStore.Downloads`, `FsapForegroundService`) | **Concluída** | `3 / 3` |
+| **M5** | Transferência Desktop ↔ Android (UI Compose Android e interoperabilidade em LAN real) | **Concluída** | `3 / 3` |
+| **M6** | Hardening (timeout de stream `15 s`, limites anti-DoS, TLS opcional), estresse (`TC-FSAP-026`) e relatório final | **Concluída** | `5 / 5` |
 
-### O que já está funcional (até M3)
-- **Descoberta Automática e Conexão Manual:** anúncio periódico (`ANNOUNCE`), busca ativa (`DISCOVER`), despedida graciosa (`BYE`), filtro de interfaces loopback/virtuais, gerenciamento de pares `ONLINE`/`STALE`/expiração TTL (`18 s`) e conexão manual por IP:Porta (`IDENTIFY`);
-- **Transferência Desktop ↔ Desktop (GUI e Headless/CLI):** envio e recebimento de múltiplos arquivos, seleção nativa de arquivos no Desktop, diálogo de aprovação explícita com countdown de `60 s` (e aprovação via CLI no servidor headless), barra de progresso/velocidade em tempo real e cancelamento bilateral;
-- **Integridade e Segurança Base:** streaming em chunks de `64 KB`, hash incremental `SHA-256`, limpeza garantida de arquivos `.part` em falhas/cancelamentos, `FileNameSanitizer` anti-*Path Traversal* e autorização por `transferToken` efêmero;
-- **Alvo Android atual:** infraestrutura base compilável (`MainActivity`, `AndroidAppContainer`, `AndroidFsapLogger` e teste base `AndroidEnvironmentTest`), aguardando as tasks específicas das Milestones **M4** e **M5**.
+### O que está funcional (M0 a M6)
+- **Descoberta Automática e Conexão Manual:** anúncio periódico (`ANNOUNCE`), busca ativa (`DISCOVER`), despedida graciosa (`BYE`), filtro de interfaces loopback/virtuais, gerenciamento de pares `ONLINE`/`STALE`/expiração TTL (`18 s`), `WifiManager.MulticastLock` no Android e conexão manual por IP:Porta (`IDENTIFY`);
+- **Transferência Multiplataforma nas 4 Direções (Desktop ↔ Android, Desktop ↔ Desktop e Android ↔ Android):** GUI Compose Multiplatform no Desktop e Android + Servidor Desktop Headless/CLI (`ServerMainKt`), seleção nativa de arquivos (Desktop e Android SAF `OpenMultipleDocuments`), `FsapForegroundService` (`dataSync`) no Android, gravação segura em `Downloads` (`DesktopNioFileStorage` / `MediaStore.Downloads` + cache privado), diálogo de aprovação explícita (`60 s`), progresso em tempo real e cancelamento bilateral (incluindo ação pela notificação Android);
+- **Integridade, Resiliência e Endurecimento Anti-DoS:** streaming constante em chunks de `64 KB`, hash incremental `SHA-256`, `.part` atômico com não-sobrescrita, `FileNameSanitizer` anti-*Path Traversal*, `transferToken` efêmero, timeout de estagnação de stream (`15 s`), recuperação de desconexão TCP abrupta e encerramento gracioso (`2000 ms`), limite de payload JSON (`256 KB`), reserva concorrente de espaço em disco (`ENOSPC` → `HTTP 507`) e controle de sessões simultâneas (`BUSY` acima da cota);
+- **Transporte TLS Opcional (`--tls`) e Verificação TOFU:** certificado autoassinado X.509 RSA-2048 efêmero por dispositivo (`PlatformTlsProvider`), troca e conferência de `fingerprint` SHA-256 (*Trust On First Use* + sufixo visual de 8 caracteres hex na UI de aprovação e conexão manual);
+- **Conformidade Completa (`TC-FSAP-001` a `TC-FSAP-026`):** cobertura integral automatizada em `commonTest`, `desktopTest` e `androidUnitTest`, além de scripts consolidados em `scripts/`.
 
 ---
 
@@ -109,26 +110,34 @@ fileshare/
 │       │   ├── core/                    # DI, logging, relógio, UUID e locks multiplataforma
 │       │   ├── protocol/                # Contratos FSAP/1.0, validadores, erros e máquinas de estado
 │       │   ├── network/                 # Descoberta UDP, cliente/servidor HTTP Ktor, streaming e transferência
-│       │   ├── storage/                 # Portas FileSource/FileSink e FileNameSanitizer
+│       │   ├── security/tls/            # Contrato TLS multiplataforma e capacidades de fingerprint SHA-256
+│       │   ├── storage/                 # Portas FileSource/FileSink, cota de disco e FileNameSanitizer
 │       │   └── ui/                      # App Compose, tema, ViewModels e telas/diálogos reativos
 │       ├── jvmCommonMain/kotlin/br/edu/fileshare/
 │       │   ├── core/                    # Implementações JVM (Clock, UUID, PlatformLock)
-│       │   └── network/                 # MulticastSocket, NetworkInterface, SHA-256 e tokens JVM
+│       │   ├── network/                 # MulticastSocket, NetworkInterface, SHA-256 e tokens JVM
+│       │   └── security/tls/            # PlatformTlsProvider JVM/Android (certificado X.509 RSA-2048)
 │       ├── desktopMain/
 │       │   ├── kotlin/br/edu/fileshare/desktop/
 │       │   │   ├── Main.kt              # Entrypoint da GUI Desktop (Compose)
 │       │   │   ├── runtime/             # Runtime desacoplado do cliente/servidor Desktop
-│       │   │   ├── server/              # Entrypoint CLI ServerMainKt, parser CLI e aprovação em console
+│       │   │   ├── server/              # Entrypoint CLI ServerMainKt, parser CLI (--tls) e aprovação em console
 │       │   │   ├── storage/             # Seletor nativo e armazenamento java.nio (DesktopNioFileStorage)
 │       │   │   ├── di/                  # Container de dependências do servidor headless
 │       │   │   └── logging/             # Slf4jFsapLogger
 │       │   └── resources/logback.xml
 │       ├── androidMain/
 │       │   ├── AndroidManifest.xml
-│       │   └── kotlin/br/edu/fileshare/android/   # Estrutura base (M4/M5 em desenvolvimento futuro)
+│       │   └── kotlin/br/edu/fileshare/android/
+│       │       ├── MainActivity.kt      # Entrypoint da UI Compose e seletores SAF / permissões
+│       │       ├── di/                  # AndroidAppContainer (runtime, logger e Storage)
+│       │       ├── network/             # AndroidMulticastLockManager (WifiManager.MulticastLock)
+│       │       ├── runtime/             # AndroidFileShareRuntime integrado ao ForegroundService
+│       │       ├── service/             # FsapForegroundService (dataSync, notificações e cancelamento)
+│       │       └── storage/             # AndroidSafFilePicker / FileSink (cacheDir + MediaStore.Downloads)
 │       ├── commonTest/                  # Testes unitários de protocolo, estados, UI e conformidade UDP (TC-FSAP-001..005)
-│       ├── desktopTest/                 # Testes de rede, servidor/cliente e conformidade HTTP/TCP (TC-FSAP-006..025)
-│       └── androidUnitTest/             # Testes unitários base Android
+│       ├── desktopTest/                 # Rede, servidor/cliente, anti-DoS, TLS e conformidade TC-FSAP-006..026
+│       └── androidUnitTest/             # Testes Android (SAF, MediaStore, MulticastLock, Service e E2E)
 └── .agent/skills/                       # Skills especializadas do projeto FileShare
 ```
 
@@ -160,7 +169,7 @@ fileshare/
    ./gradlew :composeApp:packageDesktopServerJar
    java -jar composeApp/build/libs/fileshare-server-all.jar --help
    ```
-   Opções CLI suportadas pelo `ServerMainKt`: `--port <1..65535>`, `--alias <nome>`, `--download-dir <caminho>`, `--auto-accept-test`, `-h` / `--help`.
+   Opções CLI suportadas pelo `ServerMainKt`: `--port <1..65535>`, `--alias <nome>`, `--download-dir <caminho>`, `--tls`, `--auto-accept-test`, `-h` / `--help`.
 
 3. **Executar o Aplicativo Desktop (Compose Multiplatform GUI):**
    ```bash
@@ -173,9 +182,46 @@ fileshare/
    ```bash
    ./gradlew :composeApp:desktopTest
    ```
-   Inclui os testes unitários do núcleo e as suítes de conformidade **`TC-FSAP-001` a `TC-FSAP-025`** (`UdpDiscoveryConformanceTest` e `HttpTcpM2ConformanceTest`).
+   Inclui os testes unitários do núcleo, limites anti-DoS, transporte TLS e toda a suíte de conformidade **`TC-FSAP-001` a `TC-FSAP-026`** (`UdpDiscoveryConformanceTest`, `HttpTcpM2ConformanceTest`, `DisconnectAndTimeoutRecoveryTest` e `ConcurrentTransfersTest`).
 
-5. **Executar os testes unitários e gerar o APK de debug Android (estrutura base atual):**
+5. **Executar os testes unitários e gerar o APK de debug Android:**
    ```bash
    ./gradlew :composeApp:testDebugUnitTest :composeApp:assembleDebug
    ```
+
+6. **Executar a verificação unificada do projeto (estrutura + Desktop + Android):**
+   ```bash
+   ./scripts/run-interop-checks.sh
+   ```
+
+---
+
+## 8. Guia Passo a Passo de Demonstração e Avaliação em Bancada
+
+Para reproduzir todos os cenários acadêmicos da disciplina de Redes de Computadores em ambiente local ou LAN Wi-Fi:
+
+1. **Validação Estrutural e Suíte Automatizada Completa:**
+   ```bash
+   ./scripts/check-structure.sh
+   ./scripts/run-interop-checks.sh
+   ```
+2. **Subir o Servidor Desktop Independente (Headless/CLI):**
+   ```bash
+   ./scripts/run-desktop-server.sh --port 53319 --alias Servidor-Lab --download-dir ./tmp-recebidos
+   # Opcional com criptografia TLS e impressão de fingerprint SHA-256:
+   ./scripts/run-desktop-server.sh --port 53319 --alias Servidor-TLS --download-dir ./tmp-recebidos --tls
+   ```
+3. **Subir a Aplicação Gráfica Desktop (Compose Multiplatform):**
+   ```bash
+   ./scripts/run-desktop-ui.sh
+   ```
+4. **Instalar e Executar no Smartphone ou Emulador Android:**
+   ```bash
+   ./gradlew :composeApp:assembleDebug
+   adb install -r composeApp/build/outputs/apk/debug/composeApp-debug.apk
+   ```
+5. **Executar a Demonstração Ponta a Ponta:**
+   - Confirme que Desktop GUI, Servidor Headless e Android aparecem automaticamente na lista de pares via UDP Multicast (`239.255.70.83:53318`);
+   - Caso a rede Wi-Fi bloqueie multicast (*AP Isolation*), utilize **Conectar por IP** (`IDENTIFY`) informando `IP:53319` ou `IP:53317`;
+   - Realize transferências nas direções **Desktop ↔ Desktop** e **Desktop ↔ Android**, valide a aprovação explícita com sufixo do *fingerprint* SHA-256 (no modo TLS), acompanhe a barra de progresso em chunks de `64 KB`, teste um cancelamento em voo (verificando ausência de arquivos `.part`) e inspecione opcionalmente o tráfego no Wireshark com o filtro `udp.port == 53318 or tcp.port == 53317 or tcp.port == 53319`.
+   - Consulte os resultados consolidados e a fundamentação completa no relatório final em [`docs/academic-foundation.md`](docs/academic-foundation.md) e no roteiro de interoperabilidade em [`docs/testing.md`](docs/testing.md).
