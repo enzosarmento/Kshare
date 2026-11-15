@@ -9,6 +9,7 @@ Aplicação multiplataforma em **Kotlin e Compose Multiplatform** baseada no pro
 [![Platforms](https://img.shields.io/badge/Plataformas-Linux_%7C_Windows_%7C_Android_8.0%2B-2EA44F)](#downloads-e-releases)
 [![Protocol](https://img.shields.io/badge/Protocolo-FSAP%2F1.0-0A66C2)](docs/protocol-fsap.md)
 [![Release](https://img.shields.io/badge/Release-v1.0.0-1F883D)](https://github.com/enzosarmento/file-share/releases/latest)
+[![License](https://img.shields.io/badge/Licen%C3%A7a-MIT-0A66C2)](LICENSE)
 
 O **KShare** conecta computadores (**Linux e Windows**, via interface gráfica Desktop ou servidor headless CLI) e dispositivos **Android** conectados à mesma rede local (**Wi-Fi / Ethernet**) para envio direto de arquivos — sem servidores externos, sem criação de contas e sem limites artificiais de tamanho.
 
@@ -238,3 +239,9 @@ Contribuições para evolução do protocolo, correções de rede, melhorias de 
 - **Fidelidade ao Protocolo:** qualquer alteração de contrato JSON, cabeçalho `X-FSAP-*` ou código `FSAP-ERR-*` exige atualização prévia em [`docs/protocol-fsap.md`](docs/protocol-fsap.md) e [`docs/protocol-messages.md`](docs/protocol-messages.md).
 
 Para detalhes completos sobre revisão de código, trilhas paralelas de trabalho e *Definition of Done*, consulte [`CONTRIBUTING.md`](CONTRIBUTING.md), [`tasks/backlog.md`](tasks/backlog.md) e [`tasks/dependency-graph.md`](tasks/dependency-graph.md).
+
+---
+
+## Licença
+
+Este projeto é distribuído sob a **Licença MIT**. Consulte o arquivo [`LICENSE`](LICENSE) na raiz do repositório para ler os termos completos de uso, modificação e distribuição.
