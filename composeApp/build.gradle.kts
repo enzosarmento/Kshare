@@ -126,10 +126,30 @@ compose.desktop {
         // Entrypoint do aplicativo grafico Desktop (Cliente GUI)
         mainClass = "br.edu.fileshare.desktop.MainKt"
 
+        val activeJavaHome = file(System.getProperty("java.home"))
+        if (!activeJavaHome.resolve("bin/jlink").exists() && !activeJavaHome.resolve("bin/jlink.exe").exists()) {
+            val jdk17Fallback = file("/usr/lib/jvm/java-17-openjdk-amd64")
+            if (jdk17Fallback.resolve("bin/jlink").exists()) {
+                javaHome = jdk17Fallback.absolutePath
+            }
+        }
+
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "KShare"
             packageVersion = "1.0.0"
+            includeAllModules = true
+
+            linux {
+                shortcut = true
+                iconFile.set(project.file("src/desktopMain/resources/kshare-icon.png"))
+            }
+            windows {
+                iconFile.set(project.file("src/desktopMain/resources/kshare-icon.ico"))
+            }
+            macOS {
+                iconFile.set(project.file("src/desktopMain/resources/kshare-icon.icns"))
+            }
         }
     }
 }
