@@ -213,6 +213,11 @@ class AndroidFileShareRuntime(
         )
     }
 
+    fun clearCompletedTransfers() {
+        _transferSnapshots.update { current -> current.filter { !it.state.isTerminal } }
+        controllerFlow.value?.transferCoordinator?.progressTracker?.clearCompleted()
+    }
+
     suspend fun setReceptionEnabled(enabled: Boolean) {
         controllerFlow.value?.setReceptionEnabled(enabled)
     }

@@ -5,13 +5,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -23,6 +28,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import br.edu.fileshare.ui.viewmodel.ManualIpConnectViewModel
 import br.edu.fileshare.ui.viewmodel.ManualIpUiState
@@ -32,7 +40,10 @@ fun ManualIpConnectButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    OutlinedButton(onClick = onClick, modifier = modifier) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 40.dp),
+    ) {
         Text("Conectar por IP")
     }
 }
@@ -68,14 +79,27 @@ fun ManualIpConnectDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Conectar manualmente por IP") },
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    imageVector = KShareIcons.Radar,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp),
+                )
+                Text("Conectar manualmente por IP")
+            }
+        },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    text = "Informe o endereco IP e a porta HTTP/TCP do dispositivo FSAP na mesma rede.",
+                    text = "Informe o endereco IPv4 e a porta HTTP/TCP do dispositivo FSAP na mesma rede local.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -89,6 +113,11 @@ fun ManualIpConnectDialog(
                     supportingText = state.ipError?.let { err -> { Text(err) } },
                     enabled = !state.isConnecting,
                     singleLine = true,
+                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Next,
+                    ),
                     modifier = Modifier.fillMaxWidth(),
                 )
 
@@ -100,22 +129,40 @@ fun ManualIpConnectDialog(
                     supportingText = state.portError?.let { err -> { Text(err) } },
                     enabled = !state.isConnecting,
                     singleLine = true,
+                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            if (!state.isConnecting) onConnect()
+                        },
+                    ),
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = MaterialTheme.shapes.small,
+                    onClick = { if (!state.isConnecting) onUseTlsChange(!state.useTls) },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Checkbox(
-                        checked = state.useTls,
-                        onCheckedChange = onUseTlsChange,
-                        enabled = !state.isConnecting,
-                    )
-                    Text(
-                        text = "Usar HTTPS/TLS opcional (certificado autoassinado)",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    ) {
+                        Checkbox(
+                            checked = state.useTls,
+                            onCheckedChange = null,
+                            enabled = !state.isConnecting,
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Usar HTTPS/TLS opcional (certificado autoassinado)",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
 
                 state.connectionError?.let { err ->
@@ -124,23 +171,42 @@ fun ManualIpConnectDialog(
                         shape = MaterialTheme.shapes.small,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(
-                            text = err,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            style = MaterialTheme.typography.bodySmall,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.padding(10.dp),
-                        )
+                        ) {
+                            Icon(
+                                imageVector = KShareIcons.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                text = err,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
                 }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !state.isConnecting) {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !state.isConnecting,
+                modifier = Modifier.heightIn(min = 44.dp),
+            ) {
                 Text("Cancelar")
             }
         },
         confirmButton = {
-            Button(onClick = onConnect, enabled = !state.isConnecting) {
+            Button(
+                onClick = onConnect,
+                enabled = !state.isConnecting,
+                modifier = Modifier.heightIn(min = 44.dp),
+            ) {
                 if (state.isConnecting) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(
@@ -157,4 +223,3 @@ fun ManualIpConnectDialog(
         },
     )
 }
-

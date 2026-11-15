@@ -1,9 +1,11 @@
 package br.edu.fileshare.ui.format
 
+import br.edu.fileshare.protocol.model.DeviceType
+import br.edu.fileshare.protocol.model.PlatformType
 import kotlin.math.roundToLong
 
 /**
- * Formatadores puros multiplataforma para tamanhos em bytes, taxas e duracoes (`commonMain`).
+ * Formatadores puros multiplataforma para tamanhos em bytes, taxas, duracoes e metadados (`commonMain`).
  */
 object ByteFormatter {
 
@@ -40,6 +42,41 @@ object ByteFormatter {
         }
     }
 
+    fun formatFileExtension(fileName: String): String {
+        val dotIndex = fileName.lastIndexOf('.')
+        if (dotIndex < 0 || dotIndex >= fileName.length - 1) return "ARQ"
+        val ext = fileName.substring(dotIndex + 1).trim()
+        if (ext.isEmpty() || ext.length > 5 || ext.any { !it.isLetterOrDigit() }) {
+            return "ARQ"
+        }
+        return ext.uppercase()
+    }
+
+    fun formatDeviceType(deviceType: DeviceType): String = when (deviceType) {
+        DeviceType.DESKTOP -> "Computador"
+        DeviceType.MOBILE -> "Smartphone"
+        DeviceType.TABLET -> "Tablet"
+        DeviceType.SERVER -> "Servidor"
+    }
+
+    fun formatPlatform(platform: PlatformType): String = when (platform) {
+        PlatformType.LINUX -> "Linux"
+        PlatformType.WINDOWS -> "Windows"
+        PlatformType.ANDROID -> "Android"
+    }
+
+    fun isErrorMessage(message: String): Boolean {
+        val lower = message.lowercase()
+        return lower.contains("falha") ||
+            lower.contains("erro") ||
+            lower.contains("invalido") ||
+            lower.contains("invalida") ||
+            lower.contains("selecione") ||
+            lower.contains("recusad") ||
+            lower.contains("timeout") ||
+            lower.contains("indisponivel")
+    }
+
     private fun formatOneDecimal(value: Double): String {
         val tenths = (value * 10.0).roundToLong()
         val whole = tenths / 10L
@@ -54,4 +91,3 @@ object ByteFormatter {
         return "$whole.$frac"
     }
 }
-

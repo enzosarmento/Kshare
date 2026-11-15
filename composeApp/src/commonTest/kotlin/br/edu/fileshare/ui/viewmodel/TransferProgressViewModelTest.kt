@@ -205,5 +205,47 @@ class TransferProgressViewModelTest {
             assertFalse(vm.uiState.value.items.single().isCancelling)
             assertEquals(listOf("t-cancel" to "USER_CANCELLED"), calls)
         }
+
+    @Test
+    fun `isIndeterminate, completedCount e clearCompleted funcionam conforme o ciclo de transferencia`() =
+        runTest {
+            val flow = MutableStateFlow(
+                listOf(
+                    snapshot(transferId = "t-created", state = TransferState.CREATED, updatedAtEpochMillis = 10L),
+                    snapshot(transferId = "t-pending", state = TransferState.PENDING_APPROVAL, updatedAtEpochMillis = 20L),
+                    snapshot(transferId = "t-verifying", state = TransferState.VERIFYING, updatedAtEpochMillis = 30L),
+                    snapshot(transferId = "t-xfer", state = TransferState.TRANSFERRING, updatedAtEpochMillis = 40L),
+                    snapshot(transferId = "t-done", state = TransferState.COMPLETED, updatedAtEpochMillis = 50L),
+                    snapshot(transferId = "t-fail", state = TransferState.FAILED, updatedAtEpochMillis = 60L),
+                ),
+            )
+            var clearCalls = 0
+            val vm = TransferProgressViewModel(
+                snapshotsFlow = flow,
+                cancelPort = { _, _ -> false },
+                scope = backgroundScope,
+                onClearCompleted = {
+                    clearCalls++
+                    flow.value = flow.value.filter { !it.state.isTerminal }
+                },
+            )
+            runCurrent()
+
+            val byId = vm.uiState.value.items.associateBy { it.transferId }
+            assertTrue(byId.getValue("t-created").isIndeterminate)
+            assertTrue(byId.getValue("t-pending").isIndeterminate)
+            assertTrue(byId.getValue("t-verifying").isIndeterminate)
+            assertFalse(byId.getValue("t-xfer").isIndeterminate)
+            assertFalse(byId.getValue("t-done").isIndeterminate)
+
+            assertEquals(4, vm.uiState.value.activeCount)
+            assertEquals(2, vm.uiState.value.completedCount)
+
+            vm.clearCompleted()
+            runCurrent()
+            assertEquals(1, clearCalls)
+            assertEquals(0, vm.uiState.value.completedCount)
+            assertEquals(4, vm.uiState.value.items.size)
+        }
 }
 
