@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -50,6 +51,7 @@ fun ManualIpConnectDialogHost(
         state = state,
         onIpChange = viewModel::onIpInputChange,
         onPortChange = viewModel::onPortInputChange,
+        onUseTlsChange = viewModel::onUseTlsChange,
         onDismiss = viewModel::closeDialog,
         onConnect = viewModel::submit,
     )
@@ -62,6 +64,7 @@ fun ManualIpConnectDialog(
     onPortChange: (String) -> Unit,
     onDismiss: () -> Unit,
     onConnect: () -> Unit,
+    onUseTlsChange: (Boolean) -> Unit = {},
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -99,6 +102,21 @@ fun ManualIpConnectDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Checkbox(
+                        checked = state.useTls,
+                        onCheckedChange = onUseTlsChange,
+                        enabled = !state.isConnecting,
+                    )
+                    Text(
+                        text = "Usar HTTPS/TLS opcional (certificado autoassinado)",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
 
                 state.connectionError?.let { err ->
                     Surface(

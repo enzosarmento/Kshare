@@ -19,6 +19,7 @@ import br.edu.fileshare.network.transfer.TransferProgressSnapshot
 import br.edu.fileshare.protocol.FsapConstants
 import br.edu.fileshare.protocol.error.FsapErrorCode
 import br.edu.fileshare.protocol.statemachine.LocalNodeState
+import br.edu.fileshare.security.tls.FsapTlsCapabilities
 import br.edu.fileshare.storage.FileSource
 import br.edu.fileshare.storage.StoredFileDescriptor
 import br.edu.fileshare.ui.viewmodel.FileShareRuntimePort
@@ -115,6 +116,16 @@ class AndroidFileShareRuntime(
     )
     override val externalBoundPort: StateFlow<Int> = _externalBoundPort.asStateFlow()
 
+    private val _tlsEnabled = MutableStateFlow(
+        controllerFlow.value?.tlsEnabled?.value ?: false,
+    )
+    override val tlsEnabled: StateFlow<Boolean> = _tlsEnabled.asStateFlow()
+
+    private val _localTlsFingerprint = MutableStateFlow<String?>(
+        controllerFlow.value?.localTlsFingerprint?.value,
+    )
+    override val localTlsFingerprint: StateFlow<String?> = _localTlsFingerprint.asStateFlow()
+
     private val _transferSnapshots = MutableStateFlow<List<TransferProgressSnapshot>>(emptyList())
     val transferSnapshots: StateFlow<List<TransferProgressSnapshot>> = _transferSnapshots.asStateFlow()
 
@@ -122,7 +133,10 @@ class AndroidFileShareRuntime(
         observeControllerStream()
     }
 
-    override suspend fun startNode(alias: String, port: Int): Result<Int> {
+    override suspend fun startNode(alias: String, port: Int): Result<Int> =
+        startNode(alias = alias, port = port, tlsEnabled = false)
+
+    override suspend fun startNode(alias: String, port: Int, tlsEnabled: Boolean): Result<Int> {
         runCatching { ensureNotificationPermission() }.onFailure { err ->
             if (err is CancellationException) throw err
             logger.warn(
@@ -141,7 +155,7 @@ class AndroidFileShareRuntime(
         }
 
         controller.setReceptionEnabled(true)
-        return controller.startNode(alias = alias, port = port)
+        return controller.startNode(alias = alias, port = port, tlsEnabled = tlsEnabled)
     }
 
     override suspend fun stopNode() {
@@ -165,14 +179,31 @@ class AndroidFileShareRuntime(
         return controller.refreshDiscovery()
     }
 
-    suspend fun connectByManualIp(ipAddress: String, port: Int): ManualConnectResult {
+    suspend fun connectByManualIp(
+        ipAddress: String,
+        port: Int,
+        useTls: Boolean = false,
+        expectedTlsFingerprintSha256: String? = null,
+    ): ManualConnectResult {
         val controller = controllerFlow.value
             ?: return ManualConnectResult.Failed(
                 errorCode = FsapErrorCode.CONNECTION_LOST,
                 message = "Inicie o servico FileShare antes de conectar manualmente.",
             )
-        return controller.connectByManualIp(ipAddress = ipAddress, port = port)
+        return controller.connectByManualIp(
+            ipAddress = ipAddress,
+            port = port,
+            useTls = useTls,
+            expectedTlsFingerprintSha256 = expectedTlsFingerprintSha256,
+        )
     }
+
+    fun lookupPeerTlsFingerprint(deviceId: String): String? =
+        controllerFlow.value?.lookupPeerTlsFingerprint(deviceId)
+            ?: peers.value.firstOrNull { it.identity.deviceId == deviceId }
+                ?.identity
+                ?.capabilities
+                ?.let(FsapTlsCapabilities::extractSha256Fingerprint)
 
     suspend fun cancelTransfer(transferId: String, reason: String = "USER_CANCELLED"): Boolean {
         val controller = controllerFlow.value ?: return false
@@ -204,6 +235,7 @@ class AndroidFileShareRuntime(
                     _peers.value = emptyList()
                     _localAddresses.value = initialAddressesProvider()
                     _externalNodeState.value = LocalNodeState.STOPPED
+                    _localTlsFingerprint.value = null
                     return@collectLatest
                 }
 
@@ -244,6 +276,16 @@ class AndroidFileShareRuntime(
                             if (port > 0) {
                                 _externalBoundPort.value = port
                             }
+                        }
+                    }
+                    launch {
+                        controller.tlsEnabled.collect { enabled ->
+                            _tlsEnabled.value = enabled
+                        }
+                    }
+                    launch {
+                        controller.localTlsFingerprint.collect { fingerprint ->
+                            _localTlsFingerprint.value = fingerprint
                         }
                     }
                 }

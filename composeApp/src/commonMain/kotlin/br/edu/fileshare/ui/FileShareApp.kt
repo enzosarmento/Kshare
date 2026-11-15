@@ -38,6 +38,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,6 +46,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,6 +55,7 @@ import br.edu.fileshare.network.discovery.DiscoveredPeer
 import br.edu.fileshare.network.discovery.PeerOrigin
 import br.edu.fileshare.protocol.statemachine.LocalNodeState
 import br.edu.fileshare.protocol.statemachine.PeerConnectionState
+import br.edu.fileshare.security.tls.FsapTlsCapabilities
 import br.edu.fileshare.storage.FileSource
 import br.edu.fileshare.storage.StoredFileDescriptor
 import br.edu.fileshare.ui.format.ByteFormatter
@@ -209,8 +212,9 @@ private fun NodeStatusHeader(
                     } else {
                         state.localAddresses.joinToString(", ")
                     }
+                    val tlsLabel = if (state.tlsEnabled) "HTTPS/TLS" else "HTTP"
                     Text(
-                        text = "Dispositivo: ${state.localAlias}  |  Enderecos: $ipSummary :${state.boundHttpPort}",
+                        text = "Dispositivo: ${state.localAlias}  |  Enderecos: $ipSummary :${state.boundHttpPort} ($tlsLabel)",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = if (isCompactWidth) 2 else 1,
@@ -218,7 +222,26 @@ private fun NodeStatusHeader(
                     )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
-                NodeStateBadge(nodeState = state.nodeState, onRetry = onRetryStart)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (state.tlsEnabled) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                            shape = MaterialTheme.shapes.small,
+                        ) {
+                            Text(
+                                text = "TLS",
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                    NodeStateBadge(nodeState = state.nodeState, onRetry = onRetryStart)
+                }
             }
 
             state.statusBanner?.let { banner ->
@@ -558,6 +581,8 @@ private fun PeerSelectionCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
+            val peerSupportsTls = FsapTlsCapabilities.supportsTls(peer.identity.capabilities)
+            val peerSha256 = FsapTlsCapabilities.extractSha256Fingerprint(peer.identity.capabilities)
             Row(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
@@ -572,14 +597,30 @@ private fun PeerSelectionCard(
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Surface(color = badgeContainer, shape = MaterialTheme.shapes.small) {
-                    Text(
-                        text = badgeLabel,
-                        color = badgeContent,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (peerSupportsTls) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                            shape = MaterialTheme.shapes.small,
+                        ) {
+                            Text(
+                                text = "TLS",
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                    Surface(color = badgeContainer, shape = MaterialTheme.shapes.small) {
+                        Text(
+                            text = badgeLabel,
+                            color = badgeContent,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(4.dp))
@@ -588,6 +629,19 @@ private fun PeerSelectionCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (peerSupportsTls) {
+                val tlsInfo = if (peerSha256 != null) {
+                    "TLS SHA-256: ...${FsapTlsCapabilities.shortSuffix(peerSha256)}"
+                } else {
+                    "TLS ativo (verificacao TOFU na primeira conexao)"
+                }
+                Text(
+                    text = tlsInfo,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 }
@@ -645,7 +699,7 @@ private fun ReceivedTabContent(
 @Composable
 private fun SettingsTabContent(
     state: FileShareMainUiState,
-    onDraftChanged: (alias: String, portText: String) -> Unit,
+    onDraftChanged: (alias: String, portText: String, tlsEnabled: Boolean) -> Unit,
     onApplyAndRestart: () -> Unit,
     onStopServer: () -> Unit,
     onStartServer: () -> Unit,
@@ -667,18 +721,75 @@ private fun SettingsTabContent(
 
             OutlinedTextField(
                 value = state.aliasDraft,
-                onValueChange = { onDraftChanged(it, state.portDraft) },
+                onValueChange = { onDraftChanged(it, state.portDraft, state.tlsDraftEnabled) },
                 label = { Text("Nome visivel (Alias)") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
                 value = state.portDraft,
-                onValueChange = { onDraftChanged(state.aliasDraft, it) },
+                onValueChange = { onDraftChanged(state.aliasDraft, it, state.tlsDraftEnabled) },
                 label = { Text("Porta HTTP/TCP (1024..65535)") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            Surface(
+                tonalElevation = 1.dp,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(
+                            text = "Modo seguro opcional (HTTPS/TLS autoassinado)",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Text(
+                            text = "Criptografa sinalizacao e transferencia via TLSv1.3/TLSv1.2 com pinning SHA-256. Quando desativado, usa HTTP claro (padrao academico).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = state.tlsDraftEnabled,
+                        onCheckedChange = { enabled ->
+                            onDraftChanged(state.aliasDraft, state.portDraft, enabled)
+                        },
+                    )
+                }
+            }
+
+            state.localTlsFingerprint?.let { fingerprint ->
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(12.dp),
+                    ) {
+                        Text(
+                            text = "Certificado X.509 local ativo  |  Ultimos 8 hex: ${FsapTlsCapabilities.shortSuffix(fingerprint)}",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        Text(
+                            text = "SHA-256: ${FsapTlsCapabilities.formatColonSeparated(fingerprint)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                }
+            }
 
             state.settingsError?.let { errorMsg ->
                 Text(

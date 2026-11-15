@@ -21,6 +21,7 @@ data class ManualIpUiState(
     val isDialogOpen: Boolean = false,
     val ipInput: String = "",
     val portInput: String = FsapConstants.DEFAULT_HTTP_PORT.toString(),
+    val useTls: Boolean = false,
     val ipError: String? = null,
     val portError: String? = null,
     val connectionError: String? = null,
@@ -34,6 +35,7 @@ class ManualIpConnectViewModel(
     private val connectPort: ManualConnectPort,
     private val scope: CoroutineScope,
     private val onConnected: (DiscoveredPeer) -> Unit = {},
+    private val tlsConnectPort: (suspend (ipAddress: String, port: Int, useTls: Boolean) -> ManualConnectResult)? = null,
 ) {
     private val _uiState = MutableStateFlow(ManualIpUiState())
     val uiState: StateFlow<ManualIpUiState> = _uiState.asStateFlow()
@@ -81,6 +83,15 @@ class ManualIpConnectViewModel(
         }
     }
 
+    fun onUseTlsChange(enabled: Boolean) {
+        _uiState.update {
+            it.copy(
+                useTls = enabled,
+                connectionError = null,
+            )
+        }
+    }
+
     fun submit() {
         scope.launch { submitInternal() }
     }
@@ -114,7 +125,9 @@ class ManualIpConnectViewModel(
         _uiState.update { it.copy(isConnecting = true, connectionError = null) }
 
         return try {
-            when (val result = connectPort.connectByManualIp(cleanHost, validPort)) {
+            val result = tlsConnectPort?.invoke(cleanHost, validPort, current.useTls)
+                ?: connectPort.connectByManualIp(cleanHost, validPort)
+            when (result) {
                 is ManualConnectResult.Connected -> {
                     _uiState.update {
                         it.copy(

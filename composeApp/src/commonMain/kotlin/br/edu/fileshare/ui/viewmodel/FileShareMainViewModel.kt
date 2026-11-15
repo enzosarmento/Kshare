@@ -41,7 +41,16 @@ interface FileShareRuntimePort {
     val externalBoundPort: StateFlow<Int>?
         get() = null
 
+    val tlsEnabled: StateFlow<Boolean>?
+        get() = null
+
+    val localTlsFingerprint: StateFlow<String?>?
+        get() = null
+
     suspend fun startNode(alias: String, port: Int): Result<Int>
+    suspend fun startNode(alias: String, port: Int, tlsEnabled: Boolean): Result<Int> =
+        startNode(alias = alias, port = port)
+
     suspend fun stopNode()
     suspend fun pickFilesToSend(): List<FileSource>
     suspend fun sendFiles(peer: DiscoveredPeer, sources: List<FileSource>): Result<String>
@@ -62,6 +71,9 @@ data class FileShareMainUiState(
     val receivedFiles: List<StoredFileDescriptor> = emptyList(),
     val aliasDraft: String = "",
     val portDraft: String = FsapConstants.DEFAULT_HTTP_PORT.toString(),
+    val tlsEnabled: Boolean = false,
+    val tlsDraftEnabled: Boolean = false,
+    val localTlsFingerprint: String? = null,
     val settingsError: String? = null,
     val statusBanner: String? = null,
     val isBusy: Boolean = false,
@@ -166,6 +178,29 @@ class FileShareMainViewModel(
                 }
             }
         }
+
+        runtime.tlsEnabled?.let { tlsEnabledFlow ->
+            scope.launch {
+                tlsEnabledFlow.collectLatest { enabled ->
+                    _uiState.update { current ->
+                        val syncDraft = current.activeTab != MainTab.SETTINGS ||
+                            current.tlsDraftEnabled == current.tlsEnabled
+                        current.copy(
+                            tlsEnabled = enabled,
+                            tlsDraftEnabled = if (syncDraft) enabled else current.tlsDraftEnabled,
+                        )
+                    }
+                }
+            }
+        }
+
+        runtime.localTlsFingerprint?.let { fingerprintFlow ->
+            scope.launch {
+                fingerprintFlow.collectLatest { fingerprint ->
+                    _uiState.update { it.copy(localTlsFingerprint = fingerprint) }
+                }
+            }
+        }
     }
 
     internal suspend fun reconcileExternalNodeState(externalState: LocalNodeState) {
@@ -223,6 +258,7 @@ class FileShareMainViewModel(
             val currentState = nodeFsm.currentState()
             val alias = _uiState.value.localAlias
             val port = _uiState.value.boundHttpPort
+            val tlsEnabled = _uiState.value.tlsEnabled
 
             val startedEvent = when (currentState) {
                 LocalNodeState.STOPPED -> LocalNodeEvent.CMD_START_NODE
@@ -243,7 +279,7 @@ class FileShareMainViewModel(
                 )
             }
 
-            val result = runtime.startNode(alias = alias, port = port)
+            val result = runtime.startNode(alias = alias, port = port, tlsEnabled = tlsEnabled)
             result.fold(
                 onSuccess = { boundPort ->
                     nodeFsm.transition(LocalNodeEvent.EVT_PORTS_BOUND)
@@ -253,6 +289,7 @@ class FileShareMainViewModel(
                             nodeState = nodeFsm.currentState(),
                             boundHttpPort = boundPort,
                             portDraft = boundPort.toString(),
+                            localTlsFingerprint = runtime.localTlsFingerprint?.value,
                             statusBanner = null,
                         )
                     }
@@ -395,11 +432,16 @@ class FileShareMainViewModel(
         }
     }
 
-    fun updateSettingsDraft(alias: String, portText: String) {
+    fun updateSettingsDraft(
+        alias: String,
+        portText: String,
+        tlsEnabled: Boolean = _uiState.value.tlsDraftEnabled,
+    ) {
         _uiState.update {
             it.copy(
                 aliasDraft = alias,
                 portDraft = portText,
+                tlsDraftEnabled = tlsEnabled,
                 settingsError = null,
             )
         }
@@ -426,12 +468,15 @@ class FileShareMainViewModel(
             return
         }
 
+        val nextTlsEnabled = _uiState.value.tlsDraftEnabled
         _uiState.update {
             it.copy(
                 localAlias = cleanAlias,
                 boundHttpPort = parsedPort,
                 aliasDraft = cleanAlias,
                 portDraft = parsedPort.toString(),
+                tlsEnabled = nextTlsEnabled,
+                tlsDraftEnabled = nextTlsEnabled,
                 settingsError = null,
             )
         }
@@ -439,7 +484,8 @@ class FileShareMainViewModel(
         stopNodeInternal()
         startNodeInternal()
         if (nodeFsm.currentState() == LocalNodeState.AVAILABLE) {
-            _uiState.update { it.copy(statusBanner = "Configuracoes aplicadas e servidor reiniciado.") }
+            val modeLabel = if (nextTlsEnabled) "HTTPS/TLS" else "HTTP"
+            _uiState.update { it.copy(statusBanner = "Configuracoes aplicadas e servidor reiniciado ($modeLabel).") }
         }
     }
 

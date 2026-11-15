@@ -41,6 +41,9 @@ import br.edu.fileshare.protocol.model.PlatformType
 import br.edu.fileshare.protocol.statemachine.LocalNodeEvent
 import br.edu.fileshare.protocol.statemachine.LocalNodeState
 import br.edu.fileshare.protocol.statemachine.LocalNodeStateMachine
+import br.edu.fileshare.security.tls.FsapTlsCapabilities
+import br.edu.fileshare.security.tls.PlatformTlsBundle
+import br.edu.fileshare.security.tls.PlatformTlsProvider
 import br.edu.fileshare.storage.FileSink
 import br.edu.fileshare.storage.FileSource
 import br.edu.fileshare.storage.StoredFileDescriptor
@@ -284,6 +287,12 @@ class FsapForegroundNodeController(
     private val _activeTransfersCount = MutableStateFlow(0)
     val activeTransfersCount: StateFlow<Int> = _activeTransfersCount.asStateFlow()
 
+    private val _tlsEnabled = MutableStateFlow(false)
+    val tlsEnabled: StateFlow<Boolean> = _tlsEnabled.asStateFlow()
+
+    private val _localTlsFingerprint = MutableStateFlow<String?>(null)
+    val localTlsFingerprint: StateFlow<String?> = _localTlsFingerprint.asStateFlow()
+
     private val tokenManager = TransferTokenManager(
         clock = clock,
         logger = logger,
@@ -316,6 +325,7 @@ class FsapForegroundNodeController(
         private set
 
     private var httpServer: FsapHttpServer? = null
+    private var activeTlsBundle: PlatformTlsBundle? = null
     private var discoveryCoordinator: DiscoveryCoordinator? = null
     private var lastNotificationState: FsapNotificationState? = null
 
@@ -330,13 +340,15 @@ class FsapForegroundNodeController(
     suspend fun startNode(
         alias: String = _localAlias.value,
         port: Int = _boundPort.value,
+        tlsEnabled: Boolean = false,
     ): Result<Int> = lifecycleMutex.withLock {
         val cleanAlias = sanitizeAlias(alias)
         val currentState = nodeFsm.currentState()
 
         if ((currentState == LocalNodeState.AVAILABLE || currentState == LocalNodeState.DISCOVERING) &&
             cleanAlias == _localAlias.value &&
-            (port == _boundPort.value || port == 0)
+            (port == _boundPort.value || port == 0) &&
+            tlsEnabled == _tlsEnabled.value
         ) {
             refreshNotificationSnapshot()
             return@withLock Result.success(_boundPort.value)
@@ -353,8 +365,25 @@ class FsapForegroundNodeController(
         }
         nodeFsm.transition(startEvent)
 
+        val tlsBundle = if (tlsEnabled) {
+            PlatformTlsProvider.generateSelfSignedBundle(
+                deviceId = localDeviceId,
+                alias = cleanAlias,
+                extraIpAddresses = localAddressesProvider(),
+            )
+        } else {
+            null
+        }
+        activeTlsBundle = tlsBundle
+        _tlsEnabled.value = tlsBundle != null
+        _localTlsFingerprint.value = tlsBundle?.certificateInfo?.sha256Fingerprint
+
         _localAlias.value = cleanAlias
-        activeIdentity = buildIdentity(cleanAlias, port)
+        activeIdentity = buildIdentity(
+            alias = cleanAlias,
+            port = port,
+            tlsSha256Fingerprint = tlsBundle?.certificateInfo?.sha256Fingerprint,
+        )
 
         val startingState = FsapNotificationState(
             title = "Iniciando FileShare ($cleanAlias)",
@@ -371,6 +400,7 @@ class FsapForegroundNodeController(
                     identity = activeIdentity,
                     host = "0.0.0.0",
                     port = port,
+                    tlsBundle = tlsBundle,
                 ),
                 logger = logger,
                 clock = clock,
@@ -419,6 +449,8 @@ class FsapForegroundNodeController(
                 )
             }
             httpServer = null
+            activeTlsBundle = null
+            _localTlsFingerprint.value = null
             wakeLockManager.release()
             if (nodeFsm.canTransition(LocalNodeEvent.EVT_BIND_FAILED)) {
                 nodeFsm.transition(LocalNodeEvent.EVT_BIND_FAILED)
@@ -460,8 +492,24 @@ class FsapForegroundNodeController(
         return discoveryCoordinator?.refresh() ?: Result.success(Unit)
     }
 
-    suspend fun connectByManualIp(ipAddress: String, port: Int): ManualConnectResult =
-        manualConnector.connectByManualIp(ipAddress, port)
+    suspend fun connectByManualIp(
+        ipAddress: String,
+        port: Int,
+        useTls: Boolean = false,
+        expectedTlsFingerprintSha256: String? = null,
+    ): ManualConnectResult = manualConnector.connectByManualIp(
+        ipAddress = ipAddress,
+        port = port,
+        useTls = useTls,
+        expectedTlsFingerprintSha256 = expectedTlsFingerprintSha256,
+    )
+
+    fun lookupPeerTlsFingerprint(deviceId: String): String? =
+        peerRegistry.peers.value
+            .firstOrNull { it.identity.deviceId == deviceId }
+            ?.identity
+            ?.capabilities
+            ?.let(FsapTlsCapabilities::extractSha256Fingerprint)
 
     suspend fun sendFiles(peer: DiscoveredPeer, sources: List<FileSource>): Result<String> {
         wakeLockManager.acquire()
@@ -550,6 +598,10 @@ class FsapForegroundNodeController(
             )
         }
         httpServer = null
+        if (reason != "NODE_RESTART") {
+            activeTlsBundle = null
+            _localTlsFingerprint.value = null
+        }
         wakeLockManager.release()
 
         if (nodeFsm.canTransition(LocalNodeEvent.EVT_CLEANUP_COMPLETED)) {
@@ -615,13 +667,18 @@ class FsapForegroundNodeController(
         serviceHost.updateNotification(state)
     }
 
-    private fun buildIdentity(alias: String, port: Int): DeviceIdentity = DeviceIdentity(
+    private fun buildIdentity(
+        alias: String,
+        port: Int,
+        tlsSha256Fingerprint: String? = null,
+    ): DeviceIdentity = DeviceIdentity(
         deviceId = localDeviceId,
         alias = sanitizeAlias(alias),
         deviceType = deviceType,
         platform = PlatformType.ANDROID,
         protocolVersion = FsapConstants.PROTOCOL_VERSION,
         httpPort = port,
+        capabilities = FsapTlsCapabilities.withTlsCapabilities(emptyList(), tlsSha256Fingerprint),
     )
 
     private fun createManualConnector(identity: DeviceIdentity): ManualPeerConnector = ManualPeerConnector(
@@ -718,10 +775,11 @@ class FsapForegroundService : Service(), FsapServiceHost {
                 val port = intent?.getIntExtra(EXTRA_PORT, FsapConstants.DEFAULT_HTTP_PORT)
                     ?: FsapConstants.DEFAULT_HTTP_PORT
                 val receptionEnabled = intent?.getBooleanExtra(EXTRA_RECEPTION_ENABLED, true) ?: true
+                val tlsEnabled = intent?.getBooleanExtra(EXTRA_TLS_ENABLED, false) ?: false
 
                 serviceScope.launch {
                     controller.setReceptionEnabled(receptionEnabled)
-                    controller.startNode(alias = alias, port = port)
+                    controller.startNode(alias = alias, port = port, tlsEnabled = tlsEnabled)
                 }
                 return START_NOT_STICKY
             }
@@ -789,6 +847,7 @@ class FsapForegroundService : Service(), FsapServiceHost {
         const val EXTRA_PORT: String = "extra_port"
         const val EXTRA_RECEPTION_ENABLED: String = "extra_reception_enabled"
         const val EXTRA_AUTO_START: String = "extra_auto_start"
+        const val EXTRA_TLS_ENABLED: String = "extra_tls_enabled"
 
         fun createStartIntent(
             context: Context,
@@ -796,12 +855,14 @@ class FsapForegroundService : Service(), FsapServiceHost {
             port: Int = FsapConstants.DEFAULT_HTTP_PORT,
             receptionEnabled: Boolean = true,
             autoStart: Boolean = true,
+            tlsEnabled: Boolean = false,
         ): Intent = Intent(context, FsapForegroundService::class.java).apply {
             action = ACTION_START_SERVICE
             putExtra(EXTRA_ALIAS, alias)
             putExtra(EXTRA_PORT, port)
             putExtra(EXTRA_RECEPTION_ENABLED, receptionEnabled)
             putExtra(EXTRA_AUTO_START, autoStart)
+            putExtra(EXTRA_TLS_ENABLED, tlsEnabled)
         }
 
         fun createStopIntent(context: Context): Intent =
@@ -820,8 +881,9 @@ class FsapForegroundService : Service(), FsapServiceHost {
             port: Int = FsapConstants.DEFAULT_HTTP_PORT,
             receptionEnabled: Boolean = true,
             autoStart: Boolean = true,
+            tlsEnabled: Boolean = false,
         ) {
-            val intent = createStartIntent(context, alias, port, receptionEnabled, autoStart)
+            val intent = createStartIntent(context, alias, port, receptionEnabled, autoStart, tlsEnabled)
             context.startForegroundService(intent)
         }
 

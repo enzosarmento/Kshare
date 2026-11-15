@@ -18,6 +18,8 @@ import br.edu.fileshare.protocol.model.FsapMessageType
 import br.edu.fileshare.protocol.model.IdentifyPayload
 import br.edu.fileshare.protocol.validation.FsapMessageValidator
 import br.edu.fileshare.protocol.validation.ValidationResult
+import br.edu.fileshare.security.tls.FsapTlsCapabilities
+import br.edu.fileshare.security.tls.PlatformTlsProvider
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
@@ -67,7 +69,9 @@ class ManualPeerConnector(
     suspend fun connectByManualIpOrThrow(
         ipAddress: String,
         port: Int = FsapConstants.DEFAULT_HTTP_PORT,
-    ): DiscoveredPeer = when (val result = connectByManualIp(ipAddress, port)) {
+        useTls: Boolean = false,
+        expectedTlsFingerprintSha256: String? = null,
+    ): DiscoveredPeer = when (val result = connectByManualIp(ipAddress, port, useTls, expectedTlsFingerprintSha256)) {
         is ManualConnectResult.Connected -> result.peer
         is ManualConnectResult.Failed -> throw FsapProtocolException(
             errorCode = result.errorCode,
@@ -79,6 +83,8 @@ class ManualPeerConnector(
     suspend fun connectByManualIp(
         ipAddress: String,
         port: Int = FsapConstants.DEFAULT_HTTP_PORT,
+        useTls: Boolean = false,
+        expectedTlsFingerprintSha256: String? = null,
     ): ManualConnectResult {
         val cleanHost = ipAddress.trim()
         if (!isValidTargetHost(cleanHost)) {
@@ -93,8 +99,18 @@ class ManualPeerConnector(
                 message = "Porta TCP fora do intervalo valido (1024..65535): $port.",
             )
         }
+        val normalizedExpectedSha = if (expectedTlsFingerprintSha256 != null) {
+            FsapTlsCapabilities.normalizeFingerprintHex(expectedTlsFingerprintSha256)
+                ?: return ManualConnectResult.Failed(
+                    errorCode = FsapErrorCode.MALFORMED_MESSAGE,
+                    message = "Fingerprint SHA-256 esperado invalido para autenticacao TLS.",
+                )
+        } else {
+            null
+        }
 
-        val targetUrl = "http://${formatHostForUrl(cleanHost)}:$port${FsapConstants.Routes.IDENTIFY}"
+        val scheme = if (useTls || normalizedExpectedSha != null) "https" else "http"
+        val targetUrl = "$scheme://${formatHostForUrl(cleanHost)}:$port${FsapConstants.Routes.IDENTIFY}"
         val requestEnvelope = FsapEnvelopeFactory.create(
             type = FsapMessageType.IDENTIFY,
             senderId = localIdentity.deviceId,
@@ -109,50 +125,96 @@ class ManualPeerConnector(
             clock = clock,
         )
 
-        val response = try {
-            withTimeout(connectTimeoutMs) {
-                httpClient.post(targetUrl) {
-                    header(FsapHeaders.VERSION, FsapConstants.PROTOCOL_VERSION)
-                    header(FsapHeaders.PROTOCOL, FsapConstants.PROTOCOL_NAME)
-                    contentType(ContentType.Application.Json)
-                    setBody(FsapJson.encodeEnvelope(requestEnvelope))
-                }
-            }
-        } catch (ex: TimeoutCancellationException) {
-            logger?.warn(
-                component = "ManualPeerConnector",
-                message = "Timeout (${connectTimeoutMs}ms) ao conectar manualmente em $cleanHost:$port.",
-                context = LogContext(deviceId = localIdentity.deviceId),
-                throwable = ex,
+        var observedTlsFingerprint: String? = null
+        val temporaryTlsClient = if (scheme == "https" && ownsHttpClient) {
+            PlatformTlsProvider.createTlsHttpClient(
+                expectedFingerprintSha256 = normalizedExpectedSha,
+                allowUnpinnedSelfSigned = (normalizedExpectedSha == null),
+                connectTimeoutMs = connectTimeoutMs,
+                socketTimeoutMs = connectTimeoutMs,
+                requestTimeoutMs = connectTimeoutMs,
+                onPeerFingerprintObserved = { observedTlsFingerprint = it },
             )
-            return ManualConnectResult.Failed(
-                errorCode = FsapErrorCode.DEVICE_NOT_FOUND,
-                message = "Tempo limite excedido ao contatar $cleanHost:$port.",
-                cause = ex,
-            )
-        } catch (ex: CancellationException) {
-            throw ex
-        } catch (ex: Throwable) {
-            logger?.warn(
-                component = "ManualPeerConnector",
-                message = "Dispositivo inacessivel em $cleanHost:$port: ${ex.message}",
-                context = LogContext(deviceId = localIdentity.deviceId),
-                throwable = ex,
-            )
-            return ManualConnectResult.Failed(
-                errorCode = FsapErrorCode.DEVICE_NOT_FOUND,
-                message = "Nao foi possivel conectar ao dispositivo em $cleanHost:$port.",
-                cause = ex,
-            )
+        } else {
+            null
         }
+        val effectiveClient = temporaryTlsClient ?: httpClient
 
-        return handleIdentifyResponse(response, cleanHost, port)
+        return try {
+            val response = try {
+                withTimeout(connectTimeoutMs) {
+                    effectiveClient.post(targetUrl) {
+                        header(FsapHeaders.VERSION, FsapConstants.PROTOCOL_VERSION)
+                        header(FsapHeaders.PROTOCOL, FsapConstants.PROTOCOL_NAME)
+                        contentType(ContentType.Application.Json)
+                        setBody(FsapJson.encodeEnvelope(requestEnvelope))
+                    }
+                }
+            } catch (ex: TimeoutCancellationException) {
+                logger?.warn(
+                    component = "ManualPeerConnector",
+                    message = "Timeout (${connectTimeoutMs}ms) ao conectar manualmente em $cleanHost:$port.",
+                    context = LogContext(deviceId = localIdentity.deviceId),
+                    throwable = ex,
+                )
+                return ManualConnectResult.Failed(
+                    errorCode = FsapErrorCode.DEVICE_NOT_FOUND,
+                    message = "Tempo limite excedido ao contatar $cleanHost:$port.",
+                    cause = ex,
+                )
+            } catch (ex: CancellationException) {
+                throw ex
+            } catch (ex: Throwable) {
+                val isTlsError = generateSequence(ex) { it.cause }.any { cause ->
+                    val name = cause::class.simpleName.orEmpty()
+                    val msg = cause.message?.lowercase().orEmpty()
+                    name.contains("Certificate", ignoreCase = true) ||
+                        name.contains("SSL", ignoreCase = true) ||
+                        name.contains("TLS", ignoreCase = true) ||
+                        "fingerprint" in msg
+                }
+                if (isTlsError) {
+                    logger?.warn(
+                        component = "ManualPeerConnector",
+                        message = "Falha TLS/fingerprint ao conectar em $cleanHost:$port: ${ex.message}",
+                        context = LogContext(deviceId = localIdentity.deviceId),
+                        throwable = ex,
+                    )
+                    return ManualConnectResult.Failed(
+                        errorCode = FsapErrorCode.UNAUTHORIZED_TRANSFER,
+                        message = "Falha de verificacao TLS/fingerprint ao contatar $cleanHost:$port: ${ex.message}",
+                        cause = ex,
+                    )
+                }
+                logger?.warn(
+                    component = "ManualPeerConnector",
+                    message = "Dispositivo inacessivel em $cleanHost:$port: ${ex.message}",
+                    context = LogContext(deviceId = localIdentity.deviceId),
+                    throwable = ex,
+                )
+                return ManualConnectResult.Failed(
+                    errorCode = FsapErrorCode.DEVICE_NOT_FOUND,
+                    message = "Nao foi possivel conectar ao dispositivo em $cleanHost:$port.",
+                    cause = ex,
+                )
+            }
+
+            handleIdentifyResponse(
+                response = response,
+                cleanHost = cleanHost,
+                port = port,
+                observedTlsFingerprint = observedTlsFingerprint,
+            )
+        } finally {
+            temporaryTlsClient?.close()
+        }
     }
 
     private suspend fun handleIdentifyResponse(
         response: HttpResponse,
         cleanHost: String,
         port: Int,
+        observedTlsFingerprint: String? = null,
     ): ManualConnectResult {
         val rawBody = response.bodyAsText()
         if (!response.status.isSuccess()) {
@@ -202,6 +264,26 @@ class ManualPeerConnector(
             )
         }
 
+        val advertisedSha = FsapTlsCapabilities.extractSha256Fingerprint(envelope.payload.capabilities)
+        if (observedTlsFingerprint != null &&
+            advertisedSha != null &&
+            !observedTlsFingerprint.equals(advertisedSha, ignoreCase = true)
+        ) {
+            return ManualConnectResult.Failed(
+                errorCode = FsapErrorCode.UNAUTHORIZED_TRANSFER,
+                message = "Fingerprint TLS anunciado (...${FsapTlsCapabilities.shortSuffix(advertisedSha)}) " +
+                    "diverge do certificado real (...${FsapTlsCapabilities.shortSuffix(observedTlsFingerprint)}).",
+            )
+        }
+        val effectiveCapabilities = if (observedTlsFingerprint != null) {
+            FsapTlsCapabilities.withTlsCapabilities(
+                baseCapabilities = envelope.payload.capabilities,
+                sha256Fingerprint = observedTlsFingerprint,
+            )
+        } else {
+            envelope.payload.capabilities
+        }
+
         val remoteIdentity = DeviceIdentity(
             deviceId = envelope.senderId,
             alias = envelope.payload.alias,
@@ -209,7 +291,7 @@ class ManualPeerConnector(
             platform = envelope.payload.platform,
             protocolVersion = envelope.version,
             httpPort = port,
-            capabilities = envelope.payload.capabilities,
+            capabilities = effectiveCapabilities,
         )
         val registeredPeer = peerRegistry.registerManualPeer(
             identity = remoteIdentity,

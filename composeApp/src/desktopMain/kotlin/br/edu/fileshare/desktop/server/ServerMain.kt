@@ -20,6 +20,9 @@ import br.edu.fileshare.protocol.FsapConstants
 import br.edu.fileshare.protocol.model.DeviceIdentity
 import br.edu.fileshare.protocol.model.DeviceType
 import br.edu.fileshare.protocol.model.PlatformType
+import br.edu.fileshare.security.tls.FsapTlsCapabilities
+import br.edu.fileshare.security.tls.FsapTlsCertificateInfo
+import br.edu.fileshare.security.tls.PlatformTlsProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -41,6 +44,7 @@ internal class DesktopHeadlessServerRuntime(
     val discoveryCoordinator: DiscoveryCoordinator? = null,
     val networkInterfaceProvider: JvmNetworkInterfaceProvider = JvmNetworkInterfaceProvider(),
     private val serverScope: CoroutineScope,
+    val tlsCertificateInfo: FsapTlsCertificateInfo? = null,
 ) {
     @Volatile
     private var currentIdentity: DeviceIdentity = identity
@@ -81,13 +85,28 @@ internal fun createDesktopHeadlessServer(
     discoveryPort: Int = DiscoveryDefaults.UDP_PORT,
 ): DesktopHeadlessServerRuntime {
     val serverScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val nicProvider = JvmNetworkInterfaceProvider()
+    val deviceId = PlatformUuidGenerator.nextUuidV4()
+    val tlsBundle = if (config.tlsEnabled) {
+        PlatformTlsProvider.generateSelfSignedBundle(
+            deviceId = deviceId,
+            alias = config.alias,
+            extraIpAddresses = nicProvider.listLocalIpv4Addresses(),
+        )
+    } else {
+        null
+    }
     val identity = DeviceIdentity(
-        deviceId = PlatformUuidGenerator.nextUuidV4(),
+        deviceId = deviceId,
         alias = config.alias,
         deviceType = DeviceType.SERVER,
         platform = detectDesktopPlatform(),
         protocolVersion = FsapConstants.PROTOCOL_VERSION,
         httpPort = config.port,
+        capabilities = FsapTlsCapabilities.withTlsCapabilities(
+            emptyList(),
+            tlsBundle?.certificateInfo?.sha256Fingerprint,
+        ),
     )
     val fileSink = DesktopNioFileSink(config.downloadDir)
     val tokenManager = TransferTokenManager(
@@ -111,6 +130,7 @@ internal fun createDesktopHeadlessServer(
             identity = identity,
             host = "0.0.0.0",
             port = config.port,
+            tlsBundle = tlsBundle,
         ),
         logger = container.logger,
         clock = container.clock,
@@ -121,7 +141,6 @@ internal fun createDesktopHeadlessServer(
         ),
     )
 
-    val nicProvider = JvmNetworkInterfaceProvider()
     val peerRegistry = PeerRegistry(clock = container.clock, logger = container.logger)
     var runtimeRef: DesktopHeadlessServerRuntime? = null
     val discoveryCoordinator = if (enableDiscovery) {
@@ -150,6 +169,7 @@ internal fun createDesktopHeadlessServer(
         discoveryCoordinator = discoveryCoordinator,
         networkInterfaceProvider = nicProvider,
         serverScope = serverScope,
+        tlsCertificateInfo = tlsBundle?.certificateInfo,
     ).also { runtimeRef = it }
 }
 
@@ -189,6 +209,14 @@ fun main(args: Array<String>) {
     println("  - Plataforma     : ${runtime.identity.platform}")
     println("  - Download dir   : ${runtime.fileSink.targetDirectory}")
     println("  - Auto-accept    : ${config.autoAcceptTest}")
+    val tlsCert = runtime.tlsCertificateInfo
+    println(
+        "  - Transporte TLS : " + if (tlsCert != null) {
+            "ATIVO (HTTPS) | Sufixo=${tlsCert.shortSuffix} | SHA-256=${tlsCert.formattedFingerprint}"
+        } else {
+            "DESATIVADO (HTTP claro; use --tls para habilitar)"
+        },
+    )
     println("Servidor pronto. Pressione Ctrl+C (SIGINT) ou envie SIGTERM para encerrar graciosamente.")
 
     val shutdownLatch = CountDownLatch(1)

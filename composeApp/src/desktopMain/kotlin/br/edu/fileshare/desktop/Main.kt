@@ -39,6 +39,9 @@ fun main() = application {
             connectPort = { ip, port -> runtime.connectByManualIp(ip, port) },
             scope = uiScope,
             onConnected = { peer -> mainViewModel.selectPeer(peer.identity.deviceId) },
+            tlsConnectPort = { ip, port, useTls ->
+                runtime.connectByManualIp(ip, port, useTls = useTls)
+            },
         )
     }
     val incomingApprovalViewModel = remember(runtime, uiScope, mainViewModel) {
@@ -46,6 +49,8 @@ fun main() = application {
             coordinator = runtime.approvalCoordinator,
             scope = uiScope,
             clock = runtime.clock,
+            localTlsFingerprintProvider = { mainViewModel.uiState.value.localTlsFingerprint },
+            peerFingerprintLookup = { senderId -> runtime.lookupPeerTlsFingerprint(senderId) },
             onAccepted = { mainViewModel.selectTab(MainTab.TRANSFERS) },
         )
     }

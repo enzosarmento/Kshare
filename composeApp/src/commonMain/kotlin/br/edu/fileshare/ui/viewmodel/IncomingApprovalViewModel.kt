@@ -29,6 +29,8 @@ data class IncomingPromptUiModel(
     val files: List<FileItemDto>,
     val remainingSeconds: Long,
     val receivedAtEpochMillis: Long,
+    val senderTlsFingerprintSuffix: String? = null,
+    val localTlsFingerprintSuffix: String? = null,
 )
 
 data class IncomingApprovalUiState(
@@ -46,6 +48,8 @@ class IncomingApprovalViewModel(
     private val clock: Clock = SystemClock,
     private val approvalTimeoutMs: Long = FsapConstants.T_APPROVAL_TIMEOUT_MS,
     private val countdownTickMs: Long = 1_000L,
+    private val localTlsFingerprintProvider: () -> String? = { null },
+    private val peerFingerprintLookup: (senderId: String) -> String? = { null },
     private val onAccepted: () -> Unit = {},
 ) {
     private val _uiState = MutableStateFlow(IncomingApprovalUiState())
@@ -80,6 +84,10 @@ class IncomingApprovalViewModel(
         val remainingSeconds = (remainingMs + 999L) / 1000L
 
         _uiState.update { current ->
+            val senderSuffix = peerFingerprintLookup(first.senderId)
+                ?.let(br.edu.fileshare.security.tls.FsapTlsCapabilities::shortSuffix)
+            val localSuffix = localTlsFingerprintProvider()
+                ?.let(br.edu.fileshare.security.tls.FsapTlsCapabilities::shortSuffix)
             current.copy(
                 activePrompt = IncomingPromptUiModel(
                     transferId = first.transferId,
@@ -90,6 +98,8 @@ class IncomingApprovalViewModel(
                     files = first.request.files,
                     remainingSeconds = remainingSeconds,
                     receivedAtEpochMillis = first.receivedAtEpochMillis,
+                    senderTlsFingerprintSuffix = senderSuffix,
+                    localTlsFingerprintSuffix = localSuffix,
                 ),
                 pendingCount = prompts.size,
             )
