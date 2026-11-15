@@ -65,8 +65,16 @@ class DesktopAppRuntime(
     val clock: Clock = container.clock
     val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    @Volatile
+    var currentDownloadDirectory: Path = downloadDirectory.toAbsolutePath().normalize()
+        private set
+
+    private val _saveDirectoryLabel = MutableStateFlow(currentDownloadDirectory.toString())
+    override val externalSaveDirectoryLabel: StateFlow<String> = _saveDirectoryLabel.asStateFlow()
+
     override val localDeviceId: String = PlatformUuidGenerator.nextUuidV4()
-    override val saveDirectoryLabel: String = downloadDirectory.toAbsolutePath().normalize().toString()
+    override val saveDirectoryLabel: String
+        get() = _saveDirectoryLabel.value
 
     val peerRegistry = PeerRegistry(
         clock = clock,
@@ -212,6 +220,24 @@ class DesktopAppRuntime(
 
     override suspend fun pickFilesToSend(): List<FileSource> = DesktopFilePicker.pickMultipleFiles()
 
+    override suspend fun pickSaveDirectory(): String? {
+        val picked = DesktopFilePicker.pickDestinationDirectory(
+            initialDirectory = currentDownloadDirectory,
+        ) ?: return null
+        return withContext(Dispatchers.IO) {
+            updateSaveDirectory(picked)
+        }
+    }
+
+    fun updateSaveDirectory(newDirectory: Path): String {
+        val resolved = fileSink.setTargetDirectory(newDirectory)
+        currentDownloadDirectory = resolved
+        val label = resolved.toString()
+        _saveDirectoryLabel.value = label
+        loadExistingReceivedFiles(resolved)
+        return label
+    }
+
     override suspend fun sendFiles(peer: DiscoveredPeer, sources: List<FileSource>): Result<String> {
         val transferId = PlatformUuidGenerator.nextUuidV4()
         transferCoordinator.launchSendFiles(
@@ -311,10 +337,13 @@ class DesktopAppRuntime(
         clock = clock,
     )
 
-    private fun loadExistingReceivedFiles() {
+    private fun loadExistingReceivedFiles(directory: Path = currentDownloadDirectory) {
         runCatching {
-            val dir = downloadDirectory.toAbsolutePath().normalize()
-            if (!Files.isDirectory(dir)) return
+            val dir = directory.toAbsolutePath().normalize()
+            if (!Files.isDirectory(dir)) {
+                _receivedFiles.value = emptyList()
+                return
+            }
             val existing = Files.list(dir).use { stream ->
                 stream.filter { Files.isRegularFile(it) }
                     .map { path ->
@@ -327,9 +356,7 @@ class DesktopAppRuntime(
                     }
                     .toList()
             }
-            if (existing.isNotEmpty()) {
-                _receivedFiles.value = existing
-            }
+            _receivedFiles.value = existing
         }
     }
 
