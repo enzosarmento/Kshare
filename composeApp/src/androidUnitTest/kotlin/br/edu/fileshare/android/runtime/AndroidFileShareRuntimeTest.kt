@@ -17,6 +17,7 @@ import br.edu.fileshare.core.id.PlatformUuidGenerator
 import br.edu.fileshare.core.logging.InMemoryFsapLogger
 import br.edu.fileshare.network.client.FsapHttpClient
 import br.edu.fileshare.network.client.FsapPeerEndpoint
+import br.edu.fileshare.network.discovery.ManualConnectResult
 import br.edu.fileshare.network.discovery.MulticastTransport
 import br.edu.fileshare.network.discovery.UdpDatagram
 import br.edu.fileshare.network.server.InteractiveTransferApprovalCoordinator
@@ -47,6 +48,7 @@ import kotlinx.coroutines.withTimeout
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
+import java.net.ServerSocket
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -323,6 +325,164 @@ class AndroidFileShareRuntimeTest {
                 senderCoordinator.close()
                 senderClient.close()
                 senderScope.cancel()
+                runtime.close()
+                uiScope.cancel()
+                controller.close()
+                tempRoot.deleteRecursively()
+            }
+        }
+
+    @Test
+    fun applySettingsAndRestartKeepsForegroundControllerAliveAndServesUpdatedAliasPortAndTls() =
+        runBlocking {
+            val tempRoot = Files.createTempDirectory("fsap-android-restart-").toFile()
+            val stagingDir = File(tempRoot, "staging")
+            val downloadsDir = File(tempRoot, "downloads")
+            val logger = InMemoryFsapLogger()
+
+            val initialPort = ServerSocket(0).use { it.localPort }
+            val reconfiguredPort = ServerSocket(0).use { it.localPort }
+
+            val controllerFlow = MutableStateFlow<FsapForegroundNodeController?>(null)
+            val approvalCoordinator = InteractiveTransferApprovalCoordinator()
+            var stopCalls = 0
+            lateinit var controller: FsapForegroundNodeController
+            val host = RecordingHost(
+                onStopped = {
+                    stopCalls++
+                    if (controllerFlow.value === controller) {
+                        controllerFlow.value = null
+                    }
+                },
+            )
+
+            val sink = AndroidFileSink(
+                stagingDirectory = stagingDir,
+                publisher = DirectoryDestinationPublisher(downloadsDir),
+                onCommitted = { descriptor -> controller.recordCommittedFile(descriptor) },
+                logger = logger,
+            )
+
+            controller = FsapForegroundNodeController(
+                localDeviceId = PlatformUuidGenerator.nextUuidV4(),
+                initialAlias = "Moto-G54",
+                deviceType = DeviceType.MOBILE,
+                initialPort = initialPort,
+                fileSink = sink,
+                multicastTransportFactory = {
+                    AndroidMulticastTransport(
+                        lockManager = AndroidMulticastLockManager(lockFactory = { FakeMulticastLock() }, logger = logger),
+                        delegate = InMemoryMulticastTransport(),
+                        logger = logger,
+                    )
+                },
+                localAddressesProvider = { listOf("127.0.0.1") },
+                wakeLockManager = AndroidPartialWakeLockManager(factory = { FakeWakeLock() }, logger = logger),
+                serviceHost = host,
+                approvalHandler = approvalCoordinator,
+                logger = logger,
+            )
+
+            val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val runtime = AndroidFileShareRuntime(
+                localDeviceId = controller.localDeviceId,
+                initialAlias = "Moto-G54",
+                initialPort = initialPort,
+                controllerFlow = controllerFlow,
+                approvalCoordinator = approvalCoordinator,
+                startServiceAndAwaitController = { _, _ ->
+                    controllerFlow.value = controller
+                    controller
+                },
+                filePicker = { emptyList() },
+                initialAddressesProvider = { listOf("127.0.0.1") },
+                ensureNotificationPermission = { true },
+                logger = logger,
+                parentScope = uiScope,
+                ownsScope = false,
+            )
+
+            val mainVm = FileShareMainViewModel(runtime = runtime, scope = uiScope, logger = logger)
+            val manualVm = ManualIpConnectViewModel(
+                connectPort = { ip, port -> runtime.connectByManualIp(ip, port) },
+                scope = uiScope,
+                onConnected = { peer -> mainVm.selectPeer(peer.identity.deviceId) },
+            )
+
+            try {
+                mainVm.startNodeInternal()
+                withTimeout(3_000) {
+                    while (mainVm.uiState.value.nodeState != LocalNodeState.AVAILABLE) delay(10)
+                }
+                assertEquals(0, stopCalls)
+
+                // 1. Renomear alias na mesma porta HTTP deve manter servico vivo e atualizar IDENTIFY
+                mainVm.updateSettingsDraft(
+                    alias = "Galaxy-Renomeado",
+                    portText = initialPort.toString(),
+                    tlsEnabled = false,
+                )
+                mainVm.applySettingsAndRestartInternal()
+
+                assertEquals(0, stopCalls)
+                assertEquals(controller, controllerFlow.value)
+                assertEquals(LocalNodeState.AVAILABLE, mainVm.uiState.value.nodeState)
+                assertEquals(LocalNodeState.AVAILABLE, controller.nodeState.value)
+                assertEquals("Galaxy-Renomeado", controller.localAlias.value)
+
+                manualVm.openDialog()
+                manualVm.onIpInputChange("127.0.0.1")
+                manualVm.onPortInputChange(initialPort.toString())
+                assertTrue(manualVm.submitInternal())
+                withTimeout(3_000) {
+                    while (mainVm.uiState.value.peers.none { it.identity.alias == "Galaxy-Renomeado" }) delay(10)
+                }
+
+                // 2. Alterar alias + porta + habilitar HTTPS/TLS deve reiniciar servidor na nova porta
+                mainVm.updateSettingsDraft(
+                    alias = "Galaxy-TLS",
+                    portText = reconfiguredPort.toString(),
+                    tlsEnabled = true,
+                )
+                mainVm.applySettingsAndRestartInternal()
+
+                assertEquals(0, stopCalls)
+                assertEquals(LocalNodeState.AVAILABLE, mainVm.uiState.value.nodeState)
+                assertEquals(LocalNodeState.AVAILABLE, controller.nodeState.value)
+                assertEquals(reconfiguredPort, mainVm.uiState.value.boundHttpPort)
+                assertTrue(mainVm.uiState.value.tlsEnabled)
+                val fingerprint = assertNotNull(mainVm.uiState.value.localTlsFingerprint)
+
+                val tlsConnect = runtime.connectByManualIp(
+                    ipAddress = "127.0.0.1",
+                    port = reconfiguredPort,
+                    useTls = true,
+                    expectedTlsFingerprintSha256 = fingerprint,
+                )
+                assertTrue(tlsConnect is ManualConnectResult.Connected, "Esperado Connected via TLS, obtido $tlsConnect")
+                assertEquals("Galaxy-TLS", tlsConnect.peer.identity.alias)
+
+                // 3. Novo ajuste rapido mantendo a mesma porta e TLS ligado
+                mainVm.updateSettingsDraft(
+                    alias = "Galaxy-Final",
+                    portText = reconfiguredPort.toString(),
+                    tlsEnabled = true,
+                )
+                mainVm.applySettingsAndRestartInternal()
+
+                assertEquals(0, stopCalls)
+                assertEquals(LocalNodeState.AVAILABLE, mainVm.uiState.value.nodeState)
+                assertEquals(LocalNodeState.AVAILABLE, controller.nodeState.value)
+                assertEquals("Galaxy-Final", controller.localAlias.value)
+                val finalConnect = runtime.connectByManualIp(
+                    ipAddress = "127.0.0.1",
+                    port = reconfiguredPort,
+                    useTls = true,
+                    expectedTlsFingerprintSha256 = assertNotNull(mainVm.uiState.value.localTlsFingerprint),
+                )
+                assertTrue(finalConnect is ManualConnectResult.Connected, "Esperado Connected final via TLS, obtido $finalConnect")
+                assertEquals("Galaxy-Final", finalConnect.peer.identity.alias)
+            } finally {
                 runtime.close()
                 uiScope.cancel()
                 controller.close()
