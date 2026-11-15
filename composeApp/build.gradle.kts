@@ -128,7 +128,7 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "FileShare"
+            packageName = "KShare"
             packageVersion = "1.0.0"
         }
     }
