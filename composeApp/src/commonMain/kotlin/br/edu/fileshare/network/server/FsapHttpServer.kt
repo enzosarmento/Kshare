@@ -53,7 +53,10 @@ import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.SerializationException
 import kotlin.concurrent.Volatile
 
@@ -395,18 +398,19 @@ class FsapHttpServer(
         val useTls = config.tlsBundle != null
         val engineHost = if (useTls) "127.0.0.1" else config.host
         val enginePort = if (useTls) 0 else config.port
-        val maxBindAttempts = if (config.port > 0) 3 else 1
+        val maxBindAttempts = if (config.port > 0) 10 else 1
 
         var lastError: Throwable? = null
         for (attempt in 1..maxBindAttempts) {
+            val engineContext = SupervisorJob() + engineExceptionHandler
             val createdEngine = lifecycleLock.withLock {
                 check(engine == null) { "FsapHttpServer ja esta em execucao na porta $boundPort." }
-                CoroutineScope(engineExceptionHandler).embeddedServer(
+                CoroutineScope(engineContext).embeddedServer(
                     factory = CIO,
                     port = enginePort,
                     host = engineHost,
                     watchPaths = emptyList(),
-                    parentCoroutineContext = engineExceptionHandler,
+                    parentCoroutineContext = engineContext,
                 ) {
                     configureFsapServer(
                         config = config,
@@ -455,17 +459,42 @@ class FsapHttpServer(
                         engine = null
                     }
                 }
-                if (err is CancellationException) throw err
-                lastError = err
-                if (attempt < maxBindAttempts && isBindAddressInUse(err)) {
-                    delay(40)
+                currentCoroutineContext().ensureActive()
+                val rootError = unwrapEngineStartError(err)
+                lastError = rootError
+                if (attempt < maxBindAttempts && isRetryableBindFailure(err)) {
+                    delay(60L * attempt)
                 } else {
-                    throw err
+                    throw rootError
                 }
             }
         }
         throw lastError ?: IllegalStateException("Falha ao iniciar FsapHttpServer.")
     }
+
+    private fun unwrapEngineStartError(error: Throwable): Throwable {
+        val nonCancellationCause = generateSequence(error) { it.cause }
+            .take(8)
+            .firstOrNull { it !is CancellationException }
+        if (nonCancellationCause != null) return nonCancellationCause
+        if (error is CancellationException &&
+            error.message?.contains("LazyStandaloneCoroutine", ignoreCase = true) == true
+        ) {
+            return IllegalStateException(
+                "Porta TCP ${config.host}:${config.port} ocupada ou aguardando liberacao pelo sistema operacional.",
+                error,
+            )
+        }
+        return error
+    }
+
+    private fun isRetryableBindFailure(error: Throwable): Boolean =
+        isBindAddressInUse(error) ||
+            generateSequence(error) { it.cause }
+                .take(8)
+                .any { current ->
+                    current.message?.contains("LazyStandaloneCoroutine", ignoreCase = true) == true
+                }
 
     private fun isBindAddressInUse(error: Throwable): Boolean =
         generateSequence(error) { it.cause }

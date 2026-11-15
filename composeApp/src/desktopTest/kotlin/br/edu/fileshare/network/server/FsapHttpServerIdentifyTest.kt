@@ -29,6 +29,11 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.routing.get
 import io.ktor.server.testing.testApplication
+import java.net.InetAddress
+import java.net.ServerSocket
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -221,6 +226,91 @@ class FsapHttpServerIdentifyTest {
             }
 
             assertFalse(server.isRunning())
+        }
+
+    @Test
+    fun `FsapHttpServer reinicia repetidamente na mesma porta fixa sem falhar com LazyStandaloneCoroutine`() =
+        runBlocking {
+            val logger = InMemoryFsapLogger()
+            val probeServer = FsapHttpServer(
+                config = FsapHttpServerConfig(
+                    identity = SERVER_IDENTITY.copy(httpPort = 0),
+                    host = "127.0.0.1",
+                    port = 0,
+                ),
+                logger = logger,
+            )
+            val fixedPort = probeServer.start()
+            probeServer.stop(gracePeriodMillis = 0L, timeoutMillis = 0L)
+
+            repeat(5) {
+                val server = FsapHttpServer(
+                    config = FsapHttpServerConfig(
+                        identity = SERVER_IDENTITY.copy(httpPort = fixedPort),
+                        host = "127.0.0.1",
+                        port = fixedPort,
+                    ),
+                    logger = logger,
+                )
+                try {
+                    val actualPort = server.start()
+                    assertEquals(fixedPort, actualPort)
+                    assertTrue(server.isRunning())
+                } finally {
+                    server.stop(gracePeriodMillis = 0L, timeoutMillis = 0L)
+                }
+            }
+        }
+
+    @Test
+    fun `FsapHttpServer recupera bind apos liberacao concorrente da porta e nao expoe LazyStandaloneCoroutine`() =
+        runBlocking {
+            val logger = InMemoryFsapLogger()
+            val blockerSocket = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+            val occupiedPort = blockerSocket.localPort
+            try {
+                val releaser = launch(Dispatchers.IO) {
+                    delay(120)
+                    blockerSocket.close()
+                }
+                val server = FsapHttpServer(
+                    config = FsapHttpServerConfig(
+                        identity = SERVER_IDENTITY.copy(httpPort = occupiedPort),
+                        host = "127.0.0.1",
+                        port = occupiedPort,
+                    ),
+                    logger = logger,
+                )
+                try {
+                    val actualPort = server.start()
+                    assertEquals(occupiedPort, actualPort)
+                    assertTrue(server.isRunning())
+                } finally {
+                    releaser.join()
+                    server.stop(gracePeriodMillis = 0L, timeoutMillis = 0L)
+                }
+            } finally {
+                runCatching { blockerSocket.close() }
+            }
+
+            ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { persistentSocket ->
+                val busyPort = persistentSocket.localPort
+                val blockedServer = FsapHttpServer(
+                    config = FsapHttpServerConfig(
+                        identity = SERVER_IDENTITY.copy(httpPort = busyPort),
+                        host = "127.0.0.1",
+                        port = busyPort,
+                    ),
+                    logger = logger,
+                )
+                val failure = runCatching { blockedServer.start() }.exceptionOrNull()
+                assertTrue(failure != null, "Era esperado erro quando a porta permanece ocupada.")
+                assertFalse(
+                    failure.message?.contains("LazyStandaloneCoroutine", ignoreCase = true) == true,
+                    "Mensagem de erro nao deve expor LazyStandaloneCoroutine: ${failure.message}",
+                )
+                blockedServer.stop(gracePeriodMillis = 0L, timeoutMillis = 0L)
+            }
         }
 
     @Test

@@ -41,6 +41,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.Inet4Address
 import java.net.InetAddress
@@ -114,6 +117,7 @@ class DesktopAppRuntime(
         peerRegistry = peerRegistry,
     )
 
+    private val lifecycleMutex = Mutex()
     private var httpServer: FsapHttpServer? = null
     private var discoveryCoordinator: DiscoveryCoordinator? = null
 
@@ -124,69 +128,78 @@ class DesktopAppRuntime(
     override suspend fun startNode(alias: String, port: Int): Result<Int> =
         startNode(alias = alias, port = port, tlsEnabled = false)
 
-    override suspend fun startNode(alias: String, port: Int, tlsEnabled: Boolean): Result<Int> = runCatching {
-        stopActiveServices(reason = "NODE_RESTART")
+    override suspend fun startNode(alias: String, port: Int, tlsEnabled: Boolean): Result<Int> =
+        withContext(Dispatchers.IO) {
+            lifecycleMutex.withLock {
+                runCatching {
+                    stopActiveServices(reason = "NODE_RESTART")
 
-        val detectedAddresses = networkInterfaceProvider.listLocalIpv4Addresses()
-        val tlsBundle = if (tlsEnabled) {
-            PlatformTlsProvider.generateSelfSignedBundle(
-                deviceId = localDeviceId,
-                alias = alias,
-                extraIpAddresses = detectedAddresses,
-            )
-        } else {
-            null
+                    val detectedAddresses = networkInterfaceProvider.listLocalIpv4Addresses()
+                    val tlsBundle = if (tlsEnabled) {
+                        PlatformTlsProvider.generateSelfSignedBundle(
+                            deviceId = localDeviceId,
+                            alias = alias,
+                            extraIpAddresses = detectedAddresses,
+                        )
+                    } else {
+                        null
+                    }
+                    currentTlsBundle = tlsBundle
+                    _tlsEnabled.value = tlsBundle != null
+                    _localTlsFingerprint.value = tlsBundle?.certificateInfo?.sha256Fingerprint
+
+                    activeIdentity = buildIdentity(
+                        alias = alias,
+                        port = port,
+                        tlsSha256Fingerprint = tlsBundle?.certificateInfo?.sha256Fingerprint,
+                    )
+
+                    val server = FsapHttpServer(
+                        config = FsapHttpServerConfig(
+                            identity = activeIdentity,
+                            host = "0.0.0.0",
+                            port = port,
+                            tlsBundle = tlsBundle,
+                        ),
+                        logger = logger,
+                        clock = clock,
+                        transferServices = FsapTransferServerServices(
+                            sessionManager = sessionManager,
+                            fileSink = fileSink,
+                            approvalHandler = approvalCoordinator,
+                        ),
+                    )
+                    val boundPort = server.start()
+                    activeIdentity = activeIdentity.copy(httpPort = boundPort)
+                    manualConnector.close()
+                    manualConnector = createManualConnector(activeIdentity)
+                    httpServer = server
+                    _localAddresses.value = detectedAddresses
+
+                    val coordinator = DiscoveryCoordinator(
+                        transport = JvmMulticastTransport(
+                            interfaceProvider = networkInterfaceProvider,
+                            logger = logger,
+                        ),
+                        peerRegistry = peerRegistry,
+                        localIdentityProvider = { activeIdentity },
+                        scope = scope,
+                        clock = clock,
+                        logger = logger,
+                    )
+                    coordinator.startBestEffort()
+                    discoveryCoordinator = coordinator
+                    boundPort
+                }
+            }
         }
-        currentTlsBundle = tlsBundle
-        _tlsEnabled.value = tlsBundle != null
-        _localTlsFingerprint.value = tlsBundle?.certificateInfo?.sha256Fingerprint
-
-        activeIdentity = buildIdentity(
-            alias = alias,
-            port = port,
-            tlsSha256Fingerprint = tlsBundle?.certificateInfo?.sha256Fingerprint,
-        )
-
-        val server = FsapHttpServer(
-            config = FsapHttpServerConfig(
-                identity = activeIdentity,
-                host = "0.0.0.0",
-                port = port,
-                tlsBundle = tlsBundle,
-            ),
-            logger = logger,
-            clock = clock,
-            transferServices = FsapTransferServerServices(
-                sessionManager = sessionManager,
-                fileSink = fileSink,
-                approvalHandler = approvalCoordinator,
-            ),
-        )
-        val boundPort = server.start()
-        activeIdentity = activeIdentity.copy(httpPort = boundPort)
-        manualConnector.close()
-        manualConnector = createManualConnector(activeIdentity)
-        httpServer = server
-        _localAddresses.value = detectedAddresses
-
-        val coordinator = DiscoveryCoordinator(
-            transport = JvmMulticastTransport(
-                interfaceProvider = networkInterfaceProvider,
-                logger = logger,
-            ),
-            peerRegistry = peerRegistry,
-            localIdentityProvider = { activeIdentity },
-            scope = scope,
-            clock = clock,
-            logger = logger,
-        )
-        coordinator.startBestEffort()
-        discoveryCoordinator = coordinator
-        boundPort
-    }
 
     override suspend fun stopNode() {
-        stopActiveServices(reason = "USER_STOPPED")
+        withContext(Dispatchers.IO) {
+            lifecycleMutex.withLock {
+                stopActiveServices(reason = "USER_STOPPED")
+            }
+        }
     }
 
     override suspend fun pickFilesToSend(): List<FileSource> = DesktopFilePicker.pickMultipleFiles()
