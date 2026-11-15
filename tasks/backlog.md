@@ -50,7 +50,7 @@
 | `TASK-SEC-001` | `FileNameSanitizer` contra Path Traversal e não-sobrescrita | 9. Segurança | M1 | P0 | Baixa | `TASK-FSAP-005` | `DONE` |
 | `TASK-SEC-002` | Gerador e validador de `transferToken` efêmero (`SecureRandom`) | 9. Segurança | M2 | P0 | Baixa | `TASK-FSAP-003` | `DONE` |
 | `TASK-SEC-003` | Limites de payload JSON (`256 KB`), cota de disco e overflow | 9. Segurança | M6 | P1 | Média | `TASK-DSRV-004` | `DONE` |
-| `TASK-SEC-004` | Transporte TLS opcional com fingerprint SHA-256 na LAN | 9. Segurança | M6 | P2 | Alta | `TASK-SEC-003` | `TODO` |
+| `TASK-SEC-004` | Transporte TLS opcional com fingerprint SHA-256 na LAN | 9. Segurança | M6 | P2 | Alta | `TASK-SEC-003` | `DONE` |
 | `TASK-TEST-001` | Testes unitários em `commonTest` (DTOs, estados, sanitização) | 10. Testes e Integração | M1 | P0 | Média | `TASK-FSAP-003`, `TASK-FSAP-005`, `TASK-SEC-001` | `DONE` |
 | `TASK-TEST-002` | Testes de conformidade HTTP/TCP (`TC-FSAP-006` a `025`) | 10. Testes e Integração | M2 | P0 | Alta | `TASK-DSRV-005`, `TASK-XFER-005` | `DONE` |
 | `TASK-TEST-003` | Testes de descoberta UDP e TTL (`TC-FSAP-001` a `005`) | 10. Testes e Integração | M3 | P0 | Média | `TASK-DISC-004` | `DONE` |
@@ -741,7 +741,7 @@
   - Modo HTTP padrão permanece funcional para inspeção acadêmica e modo HTTPS opcional funciona com validação de fingerprint.
 - **Arquivos ou módulos potencialmente envolvidos:** `composeApp/src/desktopMain/`, `composeApp/src/androidMain/`
 - **Testes necessários:** Teste de handshake TLS entre cliente e servidor em `desktopTest`.
-- **Status inicial:** `TODO`
+- **Status inicial:** `DONE`
 
 ---
 

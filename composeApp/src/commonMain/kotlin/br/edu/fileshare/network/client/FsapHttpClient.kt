@@ -1,5 +1,6 @@
 package br.edu.fileshare.network.client
 
+import br.edu.fileshare.core.concurrency.PlatformLock
 import br.edu.fileshare.core.id.PlatformUuidGenerator
 import br.edu.fileshare.core.id.UuidGenerator
 import br.edu.fileshare.core.logging.FsapLogger
@@ -31,6 +32,8 @@ import br.edu.fileshare.protocol.statemachine.TransferState
 import br.edu.fileshare.protocol.statemachine.TransferStateMachine
 import br.edu.fileshare.protocol.validation.FsapMessageValidator
 import br.edu.fileshare.protocol.validation.ValidationResult
+import br.edu.fileshare.security.tls.FsapTlsCapabilities
+import br.edu.fileshare.security.tls.PlatformTlsProvider
 import br.edu.fileshare.storage.FileSource
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -59,13 +62,17 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerializationException
 
 /**
- * Endereco HTTP/TCP de um par remoto na rede local.
+ * Endereco HTTP/HTTPS TCP de um par remoto na rede local.
  */
 data class FsapPeerEndpoint(
     val host: String,
     val port: Int = FsapConstants.DEFAULT_HTTP_PORT,
     val scheme: String = "http",
+    val expectedTlsFingerprintSha256: String? = null,
 ) {
+    val isTls: Boolean
+        get() = scheme.equals("https", ignoreCase = true)
+
     fun url(route: String): String {
         val normalizedHost = if (host.contains(':') && !host.startsWith('[')) "[$host]" else host
         return "$scheme://$normalizedHost:$port$route"
@@ -164,13 +171,34 @@ class FsapHttpClient(
     private val connectTimeoutMs: Long = FsapConstants.T_TCP_CONNECT_TIMEOUT_MS,
     private val approvalTimeoutMs: Long = FsapConstants.T_APPROVAL_TIMEOUT_MS,
     private val streamTimeoutMs: Long = FsapConstants.T_STREAM_READ_TIMEOUT_MS,
-    providedHttpClient: HttpClient? = null,
+    private val providedHttpClient: HttpClient? = null,
+    private val allowUnpinnedSelfSignedTls: Boolean = false,
 ) {
     private val ownsHttpClient: Boolean = providedHttpClient == null
+    private val tlsClientsLock = PlatformLock()
+    private val tlsClientsByFingerprint = LinkedHashMap<String, HttpClient>()
     internal val httpClient: HttpClient = providedHttpClient ?: createDefaultHttpClient(
         connectTimeoutMs = connectTimeoutMs,
         streamTimeoutMs = streamTimeoutMs,
     )
+
+    internal fun clientFor(endpoint: FsapPeerEndpoint): HttpClient {
+        if (!endpoint.isTls || providedHttpClient != null) return httpClient
+        val key = endpoint.expectedTlsFingerprintSha256?.let {
+            FsapTlsCapabilities.normalizeFingerprintHex(it) ?: it.lowercase()
+        } ?: if (allowUnpinnedSelfSignedTls) "__UNPINNED_SELF_SIGNED__" else "__SYSTEM_TRUST__"
+        return tlsClientsLock.withLock {
+            tlsClientsByFingerprint.getOrPut(key) {
+                PlatformTlsProvider.createTlsHttpClient(
+                    expectedFingerprintSha256 = endpoint.expectedTlsFingerprintSha256,
+                    allowUnpinnedSelfSigned = allowUnpinnedSelfSignedTls,
+                    connectTimeoutMs = connectTimeoutMs,
+                    socketTimeoutMs = streamTimeoutMs,
+                    requestTimeoutMs = HttpTimeoutConfig.INFINITE_TIMEOUT_MS,
+                )
+            }
+        }
+    }
 
     suspend fun prepareTransfer(
         endpoint: FsapPeerEndpoint,
@@ -232,12 +260,14 @@ class FsapHttpClient(
         val targetUrl = endpoint.url(FsapConstants.Routes.TRANSFERS_PREPARE)
         val encodedBody = FsapJson.encodeEnvelope(requestEnvelope)
 
+        val activeClient = clientFor(endpoint)
         val response = try {
             withTimeoutOrNull(approvalTimeoutMs + CLIENT_APPROVAL_GRACE_MS) {
-                httpClient.post(targetUrl) {
+                activeClient.post(targetUrl) {
                     applyStandardFsapHeaders()
                     contentType(ContentType.Application.Json)
                     applyOptionalTimeouts(
+                        client = activeClient,
                         connectMs = connectTimeoutMs,
                         socketMs = approvalTimeoutMs + CLIENT_APPROVAL_GRACE_MS,
                         requestMs = approvalTimeoutMs + CLIENT_APPROVAL_GRACE_MS,
@@ -259,6 +289,15 @@ class FsapHttpClient(
                 cause = timeoutEx,
             )
         } catch (ex: Throwable) {
+            if (ex.isTlsSecurityFailure()) {
+                stateMachine.transitionIfPossible(TransferEvent.PREPARATION_ERROR)
+                return PrepareTransferResult.Failed(
+                    errorCode = FsapErrorCode.UNAUTHORIZED_TRANSFER,
+                    message = "Falha na verificacao TLS/fingerprint com ${endpoint.host}:${endpoint.port}: ${ex.message}",
+                    stateMachine = stateMachine,
+                    cause = ex,
+                )
+            }
             stateMachine.transitionIfPossible(TransferEvent.CONNECTION_LOST)
             return PrepareTransferResult.Failed(
                 errorCode = FsapErrorCode.CONNECTION_LOST,
@@ -548,6 +587,16 @@ class FsapHttpClient(
                 cause = timeoutEx,
             )
         } catch (ex: Throwable) {
+            if (ex.isTlsSecurityFailure()) {
+                stateMachine.transitionIfPossible(TransferEvent.CONNECTION_LOST)
+                return TransferBatchUploadResult.Failed(
+                    transferId = session.transferId,
+                    errorCode = FsapErrorCode.UNAUTHORIZED_TRANSFER,
+                    message = "Falha na verificacao TLS/fingerprint durante transmissao: ${ex.message}",
+                    stateMachine = stateMachine,
+                    cause = ex,
+                )
+            }
             if (isRemoteSessionCancelled(session)) {
                 stateMachine.transitionIfPossible(TransferEvent.CANCEL_TRANSFER)
                 return TransferBatchUploadResult.Cancelled(
@@ -611,11 +660,13 @@ class FsapHttpClient(
             }
         }
 
-        val response = httpClient.put(url) {
+        val activeClient = clientFor(session.endpoint)
+        val response = activeClient.put(url) {
             applyStandardFsapHeaders()
             header(FsapHeaders.TRANSFER_TOKEN, session.transferToken)
             header(FsapHeaders.FILE_SHA256, fileItem.sha256)
             applyOptionalTimeouts(
+                client = activeClient,
                 connectMs = connectTimeoutMs,
                 socketMs = streamTimeoutMs,
                 requestMs = HttpTimeoutConfig.INFINITE_TIMEOUT_MS,
@@ -667,11 +718,13 @@ class FsapHttpClient(
             clock = clock,
         )
 
-        val response = httpClient.post(url) {
+        val activeClient = clientFor(session.endpoint)
+        val response = activeClient.post(url) {
             applyStandardFsapHeaders()
             header(FsapHeaders.TRANSFER_TOKEN, session.transferToken)
             contentType(ContentType.Application.Json)
             applyOptionalTimeouts(
+                client = activeClient,
                 connectMs = connectTimeoutMs,
                 socketMs = streamTimeoutMs,
                 requestMs = streamTimeoutMs,
@@ -710,10 +763,12 @@ class FsapHttpClient(
         transferToken: String? = null,
     ): TransferStatusPayload {
         val url = endpoint.url(FsapConstants.Routes.transferStatus(transferId))
-        val response = httpClient.get(url) {
+        val activeClient = clientFor(endpoint)
+        val response = activeClient.get(url) {
             applyStandardFsapHeaders()
             transferToken?.let { header(FsapHeaders.TRANSFER_TOKEN, it) }
             applyOptionalTimeouts(
+                client = activeClient,
                 connectMs = connectTimeoutMs,
                 socketMs = streamTimeoutMs,
                 requestMs = connectTimeoutMs,
@@ -746,11 +801,13 @@ class FsapHttpClient(
             clock = clock,
         )
 
-        val response = httpClient.post(url) {
+        val activeClient = clientFor(endpoint)
+        val response = activeClient.post(url) {
             applyStandardFsapHeaders()
             transferToken?.let { header(FsapHeaders.TRANSFER_TOKEN, it) }
             contentType(ContentType.Application.Json)
             applyOptionalTimeouts(
+                client = activeClient,
                 connectMs = connectTimeoutMs,
                 socketMs = connectTimeoutMs,
                 requestMs = connectTimeoutMs,
@@ -847,11 +904,12 @@ class FsapHttpClient(
     }
 
     internal fun HttpRequestBuilder.applyOptionalTimeouts(
+        client: HttpClient = httpClient,
         connectMs: Long? = null,
         socketMs: Long? = null,
         requestMs: Long? = null,
     ) {
-        if (httpClient.pluginOrNull(HttpTimeout) != null) {
+        if (client.pluginOrNull(HttpTimeout) != null) {
             timeout {
                 connectMs?.let { connectTimeoutMillis = it }
                 socketMs?.let { socketTimeoutMillis = it }
@@ -864,6 +922,12 @@ class FsapHttpClient(
         if (ownsHttpClient) {
             httpClient.close()
         }
+        val tlsClients = tlsClientsLock.withLock {
+            val snapshot = tlsClientsByFingerprint.values.toList()
+            tlsClientsByFingerprint.clear()
+            snapshot
+        }
+        tlsClients.forEach { runCatching { it.close() } }
     }
 
     companion object {
@@ -886,6 +950,16 @@ class FsapHttpClient(
                 cause is HttpRequestTimeoutException ||
                     cause is kotlinx.coroutines.TimeoutCancellationException ||
                     cause::class.simpleName == "SocketTimeoutException"
+            }
+
+        private fun Throwable.isTlsSecurityFailure(): Boolean =
+            generateSequence(this) { it.cause }.any { cause ->
+                val className = cause::class.simpleName.orEmpty()
+                val msg = cause.message?.lowercase().orEmpty()
+                className.contains("Certificate", ignoreCase = true) ||
+                    className.contains("SSL", ignoreCase = true) ||
+                    className.contains("TLS", ignoreCase = true) ||
+                    "fingerprint" in msg
             }
 
         private fun computeSafeTotalBytes(files: List<FileItemDto>): Long? {

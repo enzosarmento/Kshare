@@ -64,7 +64,20 @@ data class FsapHttpServerConfig(
     val host: String = "0.0.0.0",
     val port: Int = identity.httpPort,
     val maxJsonBodyBytes: Int = FsapConstants.MAX_JSON_BODY_BYTES,
-)
+    val tlsBundle: br.edu.fileshare.security.tls.PlatformTlsBundle? = null,
+) {
+    val effectiveIdentity: DeviceIdentity
+        get() = if (tlsBundle == null) {
+            identity
+        } else {
+            identity.copy(
+                capabilities = br.edu.fileshare.security.tls.FsapTlsCapabilities.withTlsCapabilities(
+                    baseCapabilities = identity.capabilities,
+                    sha256Fingerprint = tlsBundle.certificateInfo.sha256Fingerprint,
+                ),
+            )
+        }
+}
 
 /**
  * Configura plugins padrao (negociacao JSON, tratamento global de erros FSAP) e rotas de identificacao
@@ -204,7 +217,7 @@ private fun Routing.installIdentityRoutes(
     get(FsapConstants.Routes.INFO) {
         call.validateOptionalFsapVersionHeader()
         val responseEnvelope = buildIdentifyEnvelope(
-            identity = config.identity,
+            identity = config.effectiveIdentity,
             effectivePort = effectivePortProvider(),
             clock = clock,
             uuidGenerator = uuidGenerator,
@@ -232,7 +245,7 @@ private fun Routing.installIdentityRoutes(
         )
 
         val responseEnvelope = buildIdentifyEnvelope(
-            identity = config.identity,
+            identity = config.effectiveIdentity,
             effectivePort = effectivePortProvider(),
             clock = clock,
             uuidGenerator = uuidGenerator,
@@ -364,6 +377,9 @@ class FsapHttpServer(
     private var engine: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
 
     @Volatile
+    private var tlsProxy: br.edu.fileshare.security.tls.FsapTlsServerProxy? = null
+
+    @Volatile
     private var boundPort: Int = config.port
 
     suspend fun start(): Int {
@@ -375,12 +391,16 @@ class FsapHttpServer(
                 throwable = throwable,
             )
         }
+        val useTls = config.tlsBundle != null
+        val engineHost = if (useTls) "127.0.0.1" else config.host
+        val enginePort = if (useTls) 0 else config.port
+
         val createdEngine = lifecycleLock.withLock {
             check(engine == null) { "FsapHttpServer ja esta em execucao na porta $boundPort." }
             CoroutineScope(engineExceptionHandler).embeddedServer(
                 factory = CIO,
-                port = config.port,
-                host = config.host,
+                port = enginePort,
+                host = engineHost,
                 parentCoroutineContext = engineExceptionHandler,
             ) {
                 configureFsapServer(
@@ -397,7 +417,31 @@ class FsapHttpServer(
 
         try {
             createdEngine.start(wait = false)
+            val engineBoundPort = createdEngine.engine.resolvedConnectors().firstOrNull()?.port ?: config.port
+            val actualPort = if (useTls) {
+                val proxy = br.edu.fileshare.security.tls.PlatformTlsProvider.startTlsProxy(
+                    bundle = requireNotNull(config.tlsBundle),
+                    bindHost = config.host,
+                    bindPort = config.port,
+                    targetLoopbackHost = "127.0.0.1",
+                    targetLoopbackPort = engineBoundPort,
+                    logger = logger,
+                )
+                tlsProxy = proxy
+                proxy.boundPort
+            } else {
+                engineBoundPort
+            }
+            boundPort = actualPort
+            logger.info(
+                component = "FsapHttpServer",
+                message = "Servidor ${if (useTls) "HTTPS/TLS" else "HTTP/TCP"} FSAP/1.0 ativo em ${config.host}:$actualPort (alias='${config.identity.alias}').",
+                context = LogContext(deviceId = config.identity.deviceId),
+            )
+            return actualPort
         } catch (err: Throwable) {
+            runCatching { tlsProxy?.close() }
+            tlsProxy = null
             runCatching { createdEngine.stop(gracePeriodMillis = 0L, timeoutMillis = 0L) }
             lifecycleLock.withLock {
                 if (engine === createdEngine) {
@@ -406,14 +450,6 @@ class FsapHttpServer(
             }
             throw err
         }
-        val actualPort = createdEngine.engine.resolvedConnectors().firstOrNull()?.port ?: config.port
-        boundPort = actualPort
-        logger.info(
-            component = "FsapHttpServer",
-            message = "Servidor HTTP/TCP FSAP/1.0 ativo em ${config.host}:$actualPort (alias='${config.identity.alias}').",
-            context = LogContext(deviceId = config.identity.deviceId),
-        )
-        return actualPort
     }
 
     fun resolvedPort(): Int = boundPort
@@ -424,17 +460,24 @@ class FsapHttpServer(
         gracePeriodMillis: Long = FsapConstants.T_SHUTDOWN_GRACE_MS,
         timeoutMillis: Long = FsapConstants.T_SHUTDOWN_GRACE_MS,
     ) {
-        val activeEngine = lifecycleLock.withLock {
+        val (activeEngine, activeProxy) = lifecycleLock.withLock {
             val current = engine
+            val proxy = tlsProxy
             engine = null
-            current
-        } ?: return
+            tlsProxy = null
+            current to proxy
+        }
+        if (activeEngine == null) {
+            runCatching { activeProxy?.close() }
+            return
+        }
 
         logger.info(
             component = "FsapHttpServer",
             message = "Encerrando servidor HTTP/TCP FSAP/1.0 (porta $boundPort)...",
             context = LogContext(deviceId = config.identity.deviceId),
         )
+        runCatching { activeProxy?.close() }
         activeEngine.stop(gracePeriodMillis, timeoutMillis)
         boundPort = config.port
     }

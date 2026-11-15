@@ -100,6 +100,19 @@ fun IncomingTransferApprovalDialog(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        val tlsSegments = buildList {
+                            prompt.localTlsFingerprintSuffix?.let { add("Cert. local: ...$it") }
+                            prompt.senderTlsFingerprintSuffix?.let { add("Par: ...$it") }
+                        }
+                        if (tlsSegments.isNotEmpty()) {
+                            Text(
+                                text = "TLS SHA-256 (${tlsSegments.joinToString("  |  ")})",
+                                modifier = Modifier.padding(top = 6.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                     }
                 }
 

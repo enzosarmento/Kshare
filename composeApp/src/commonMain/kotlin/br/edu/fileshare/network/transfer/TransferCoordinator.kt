@@ -12,6 +12,7 @@ import br.edu.fileshare.network.client.PrepareTransferResult
 import br.edu.fileshare.network.client.TransferBatchUploadResult
 import br.edu.fileshare.network.client.transitionIfPossible
 import br.edu.fileshare.network.discovery.DiscoveredPeer
+import br.edu.fileshare.security.tls.FsapTlsCapabilities
 import br.edu.fileshare.network.server.ServerSessionSnapshot
 import br.edu.fileshare.network.server.ServerTransferSessionManager
 import br.edu.fileshare.protocol.error.FsapErrorCode
@@ -94,7 +95,7 @@ class TransferCoordinator(
         transferId: String = uuidGenerator.nextUuidV4(),
         onFinished: (SendFilesOutcome) -> Unit = {},
     ): Job = coordinatorScope.launch {
-        val endpoint = FsapPeerEndpoint(host = peer.ipAddress, port = peer.port)
+        val endpoint = FsapTlsCapabilities.endpointForPeer(peer)
         val outcome = sendFiles(
             endpoint = endpoint,
             peerAlias = peer.alias,

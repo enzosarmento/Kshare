@@ -26,6 +26,9 @@ import br.edu.fileshare.network.transfer.TransferCoordinator
 import br.edu.fileshare.protocol.FsapConstants
 import br.edu.fileshare.protocol.model.DeviceIdentity
 import br.edu.fileshare.protocol.model.DeviceType
+import br.edu.fileshare.security.tls.FsapTlsCapabilities
+import br.edu.fileshare.security.tls.PlatformTlsBundle
+import br.edu.fileshare.security.tls.PlatformTlsProvider
 import br.edu.fileshare.storage.FileSource
 import br.edu.fileshare.storage.StoredFileDescriptor
 import br.edu.fileshare.ui.viewmodel.FileShareRuntimePort
@@ -76,6 +79,14 @@ class DesktopAppRuntime(
     private val _localAddresses = MutableStateFlow(networkInterfaceProvider.listLocalIpv4Addresses())
     override val localAddresses: StateFlow<List<String>> = _localAddresses.asStateFlow()
 
+    private val _tlsEnabled = MutableStateFlow(false)
+    override val tlsEnabled: StateFlow<Boolean> = _tlsEnabled.asStateFlow()
+
+    private val _localTlsFingerprint = MutableStateFlow<String?>(null)
+    override val localTlsFingerprint: StateFlow<String?> = _localTlsFingerprint.asStateFlow()
+
+    private var currentTlsBundle: PlatformTlsBundle? = null
+
     val approvalCoordinator = InteractiveTransferApprovalCoordinator()
 
     val fileSink = DesktopNioFileSink(
@@ -110,16 +121,38 @@ class DesktopAppRuntime(
         loadExistingReceivedFiles()
     }
 
-    override suspend fun startNode(alias: String, port: Int): Result<Int> = runCatching {
+    override suspend fun startNode(alias: String, port: Int): Result<Int> =
+        startNode(alias = alias, port = port, tlsEnabled = false)
+
+    override suspend fun startNode(alias: String, port: Int, tlsEnabled: Boolean): Result<Int> = runCatching {
         stopActiveServices(reason = "NODE_RESTART")
 
-        activeIdentity = buildIdentity(alias, port)
+        val detectedAddresses = networkInterfaceProvider.listLocalIpv4Addresses()
+        val tlsBundle = if (tlsEnabled) {
+            PlatformTlsProvider.generateSelfSignedBundle(
+                deviceId = localDeviceId,
+                alias = alias,
+                extraIpAddresses = detectedAddresses,
+            )
+        } else {
+            null
+        }
+        currentTlsBundle = tlsBundle
+        _tlsEnabled.value = tlsBundle != null
+        _localTlsFingerprint.value = tlsBundle?.certificateInfo?.sha256Fingerprint
+
+        activeIdentity = buildIdentity(
+            alias = alias,
+            port = port,
+            tlsSha256Fingerprint = tlsBundle?.certificateInfo?.sha256Fingerprint,
+        )
 
         val server = FsapHttpServer(
             config = FsapHttpServerConfig(
                 identity = activeIdentity,
                 host = "0.0.0.0",
                 port = port,
+                tlsBundle = tlsBundle,
             ),
             logger = logger,
             clock = clock,
@@ -134,7 +167,7 @@ class DesktopAppRuntime(
         manualConnector.close()
         manualConnector = createManualConnector(activeIdentity)
         httpServer = server
-        _localAddresses.value = networkInterfaceProvider.listLocalIpv4Addresses()
+        _localAddresses.value = detectedAddresses
 
         val coordinator = DiscoveryCoordinator(
             transport = JvmMulticastTransport(
@@ -173,8 +206,24 @@ class DesktopAppRuntime(
         return discoveryCoordinator?.refresh() ?: Result.success(Unit)
     }
 
-    suspend fun connectByManualIp(ipAddress: String, port: Int): ManualConnectResult =
-        manualConnector.connectByManualIp(ipAddress, port)
+    suspend fun connectByManualIp(
+        ipAddress: String,
+        port: Int,
+        useTls: Boolean = false,
+        expectedTlsFingerprintSha256: String? = null,
+    ): ManualConnectResult = manualConnector.connectByManualIp(
+        ipAddress = ipAddress,
+        port = port,
+        useTls = useTls,
+        expectedTlsFingerprintSha256 = expectedTlsFingerprintSha256,
+    )
+
+    fun lookupPeerTlsFingerprint(deviceId: String): String? =
+        peerRegistry.peers.value
+            .firstOrNull { it.identity.deviceId == deviceId }
+            ?.identity
+            ?.capabilities
+            ?.let(FsapTlsCapabilities::extractSha256Fingerprint)
 
     private val isClosed = java.util.concurrent.atomic.AtomicBoolean(false)
 
@@ -206,15 +255,24 @@ class DesktopAppRuntime(
             }
         }
         httpServer = null
+        if (reason != "NODE_RESTART") {
+            currentTlsBundle = null
+            _localTlsFingerprint.value = null
+        }
     }
 
-    private fun buildIdentity(alias: String, port: Int): DeviceIdentity = DeviceIdentity(
+    private fun buildIdentity(
+        alias: String,
+        port: Int,
+        tlsSha256Fingerprint: String? = null,
+    ): DeviceIdentity = DeviceIdentity(
         deviceId = localDeviceId,
         alias = alias.take(FsapConstants.MAX_ALIAS_LENGTH).ifBlank { defaultDesktopAlias() },
         deviceType = DeviceType.DESKTOP,
         platform = detectDesktopPlatform(),
         protocolVersion = FsapConstants.PROTOCOL_VERSION,
         httpPort = port,
+        capabilities = FsapTlsCapabilities.withTlsCapabilities(emptyList(), tlsSha256Fingerprint),
     )
 
     private fun createSessionManager(): ServerTransferSessionManager = ServerTransferSessionManager(

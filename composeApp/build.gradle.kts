@@ -66,6 +66,12 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
         }
 
+        val jvmCommonMain by getting {
+            dependencies {
+                implementation(libs.ktor.network.tls.certificates)
+            }
+        }
+
         androidMain.dependencies {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)

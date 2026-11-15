@@ -12,6 +12,7 @@ data class ServerCliConfig(
     val downloadDir: Path = defaultDownloadDir(),
     val autoAcceptTest: Boolean = false,
     val showHelp: Boolean = false,
+    val tlsEnabled: Boolean = false,
 ) {
     companion object {
         const val DEFAULT_PORT: Int = 53317
@@ -52,6 +53,7 @@ object ServerCliParser {
         var downloadDir = ServerCliConfig.defaultDownloadDir()
         var autoAcceptTest = false
         var showHelp = false
+        var tlsEnabled = false
 
         var index = 0
         while (index < args.size) {
@@ -112,6 +114,10 @@ object ServerCliParser {
                     autoAcceptTest = parseBooleanFlag(option, inlineValue)
                 }
 
+                "--tls" -> {
+                    tlsEnabled = parseBooleanFlag(option, inlineValue)
+                }
+
                 else -> throw CliParseException("Argumento desconhecido: '$rawArg'.")
             }
             index += 1
@@ -123,6 +129,7 @@ object ServerCliParser {
             downloadDir = downloadDir,
             autoAcceptTest = autoAcceptTest,
             showHelp = showHelp,
+            tlsEnabled = tlsEnabled,
         )
     }
 
@@ -142,6 +149,7 @@ object ServerCliParser {
         appendLine("  --alias <nome>           Alias visivel na rede local (1..${ServerCliConfig.MAX_ALIAS_LENGTH} caracteres)")
         appendLine("  --download-dir <caminho> Diretorio de destino dos arquivos recebidos")
         appendLine("  --auto-accept-test       Aceita transferencias automaticamente (apenas testes/headless)")
+        appendLine("  --tls                    Habilita transporte HTTPS/TLS autoassinado opcional")
         appendLine("  -h, --help               Exibe esta ajuda")
     }
 }
