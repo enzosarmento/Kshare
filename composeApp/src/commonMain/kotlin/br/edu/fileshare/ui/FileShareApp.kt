@@ -1,6 +1,7 @@
 package br.edu.fileshare.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -82,6 +83,9 @@ import br.edu.fileshare.ui.theme.FileShareTheme
 import br.edu.fileshare.ui.viewmodel.FileShareMainUiState
 import br.edu.fileshare.ui.viewmodel.FileShareMainViewModel
 import br.edu.fileshare.ui.viewmodel.MainTab
+import fileshare.composeapp.generated.resources.Res
+import fileshare.composeapp.generated.resources.kshare_icon
+import org.jetbrains.compose.resources.painterResource
 
 /**
  * Pontos de quebra responsivos entre layout vertical (smartphones) e painel duplo + NavigationRail
@@ -453,20 +457,11 @@ private fun BrandTitleGroup() {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Surface(
-            color = MaterialTheme.colorScheme.primaryContainer,
-            shape = MaterialTheme.shapes.small,
+        Image(
+            painter = painterResource(Res.drawable.kshare_icon),
+            contentDescription = null,
             modifier = Modifier.size(28.dp),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = KShareIcons.Transfers,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
+        )
         Text(
             text = ProjectInfo.PROJECT_NAME,
             style = MaterialTheme.typography.titleMedium,
