@@ -1,7 +1,7 @@
 # Planejamento de Milestones e Critérios de Conclusão — FileShare
 
-> **Status:** Planejamento de Entregas (Milestone M0 — Seções 7.1 e 7.2)  
-> **Progresso de Implementação:** `0 / 47 tasks concluídas` (Todas em `TODO`).
+> **Status:** Todas as Milestones **M0 a M6 concluídas** (`CURRENT_MILESTONE = "M6 - Concluida"`).  
+> **Progresso de Implementação:** **`47 / 47 tasks concluídas` (`DONE`)** — Histórico das especificações e critérios de saída de M0 a M6 preservado abaixo para rastreabilidade acadêmica.
 
 ---
 
