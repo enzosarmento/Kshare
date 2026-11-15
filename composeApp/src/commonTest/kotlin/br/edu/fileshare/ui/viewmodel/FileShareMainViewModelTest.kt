@@ -47,10 +47,14 @@ class FileShareMainViewModelTest {
         override val externalBoundPort: StateFlow<Int> = externalPortFlow
         val externalAliasFlow = MutableStateFlow(initialAlias)
         override val externalLocalAlias: StateFlow<String> = externalAliasFlow
+        val externalSaveDirFlow = MutableStateFlow(saveDirectoryLabel)
+        override val externalSaveDirectoryLabel: StateFlow<String> = externalSaveDirFlow
 
         var failNextStart: Boolean = false
         var resolvedPortOverride: Int? = null
         var pickedFilesQueue: List<FileSource> = emptyList()
+        var pickedSaveDirectoryResult: String? = null
+        var failNextPickSaveDirectory: Boolean = false
         var lastStartedAlias: String? = null
         var lastStartedPort: Int? = null
         var stopCalls: Int = 0
@@ -78,6 +82,18 @@ class FileShareMainViewModelTest {
         }
 
         override suspend fun pickFilesToSend(): List<FileSource> = pickedFilesQueue
+
+        override suspend fun pickSaveDirectory(): String? {
+            if (failNextPickSaveDirectory) {
+                failNextPickSaveDirectory = false
+                error("Diretorio protegido")
+            }
+            val next = pickedSaveDirectoryResult
+            if (next != null) {
+                externalSaveDirFlow.value = next
+            }
+            return next
+        }
 
         override suspend fun sendFiles(peer: DiscoveredPeer, sources: List<FileSource>): Result<String> {
             lastSentTransfer = peer to sources
@@ -316,6 +332,42 @@ class FileShareMainViewModelTest {
         assertEquals("Desktop-Atualizado", vm.uiState.value.localAlias)
         assertEquals("Desktop-Atualizado", runtime.lastStartedAlias)
         assertNotNull(runtime.lastSentTransfer)
+    }
+
+    @Test
+    fun `escolha de pasta de destino atualiza saveDirectoryLabel, banner e sincroniza fluxo externo`() = runTest {
+        val runtime = FakeRuntimePort()
+        val vm = FileShareMainViewModel(runtime, backgroundScope)
+        runCurrent()
+
+        assertEquals("/tmp/downloads", vm.uiState.value.saveDirectoryLabel)
+
+        // Cancelamento (null) preserva caminho atual sem mensagem de erro
+        runtime.pickedSaveDirectoryResult = null
+        vm.pickSaveDirectoryInternal()
+        assertEquals("/tmp/downloads", vm.uiState.value.saveDirectoryLabel)
+        assertNull(vm.uiState.value.statusBanner)
+
+        // Escolha valida atualiza saveDirectoryLabel e exibe banner de confirmacao
+        runtime.pickedSaveDirectoryResult = "/home/aluno/Documentos/KShare"
+        vm.pickSaveDirectoryInternal()
+        runCurrent()
+        assertEquals("/home/aluno/Documentos/KShare", vm.uiState.value.saveDirectoryLabel)
+        assertEquals(
+            "Pasta de recebimento alterada para: /home/aluno/Documentos/KShare",
+            vm.uiState.value.statusBanner,
+        )
+
+        // Falha de I/O exibe banner de erro sem perder caminho anterior
+        runtime.failNextPickSaveDirectory = true
+        vm.pickSaveDirectoryInternal()
+        assertEquals("/home/aluno/Documentos/KShare", vm.uiState.value.saveDirectoryLabel)
+        assertTrue(ByteFormatter.isErrorMessage(vm.uiState.value.statusBanner.orEmpty()))
+
+        // Atualizacao externa (ex.: sincronizada do servico em segundo plano) reflete na UI
+        runtime.externalSaveDirFlow.value = "/mnt/sd/Recebidos"
+        runCurrent()
+        assertEquals("/mnt/sd/Recebidos", vm.uiState.value.saveDirectoryLabel)
     }
 
     @Test

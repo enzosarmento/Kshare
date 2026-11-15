@@ -215,6 +215,8 @@ fun FileShareApp(
                             MainTab.RECEIVED -> ReceivedTabContent(
                                 saveDirectoryLabel = state.saveDirectoryLabel,
                                 files = state.receivedFiles,
+                                onPickSaveDirectory = viewModel::pickSaveDirectory,
+                                isBusy = state.isBusy,
                             )
 
                             MainTab.TRANSFERS -> transfersContent()
@@ -225,6 +227,7 @@ fun FileShareApp(
                                 onApplyAndRestart = viewModel::applySettingsAndRestart,
                                 onStopServer = viewModel::stopNode,
                                 onStartServer = viewModel::startNode,
+                                onPickSaveDirectory = viewModel::pickSaveDirectory,
                             )
                         }
                     }
@@ -1190,6 +1193,8 @@ private fun PeerConnectionBadge(connectionState: PeerConnectionState) {
 private fun ReceivedTabContent(
     saveDirectoryLabel: String,
     files: List<StoredFileDescriptor>,
+    onPickSaveDirectory: () -> Unit = {},
+    isBusy: Boolean = false,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         FlowRow(
@@ -1207,16 +1212,34 @@ private fun ReceivedTabContent(
                     text = "Destino: $saveDirectoryLabel",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            SemanticBadge(
-                text = "${files.size} arquivo(s)",
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                monospace = true,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onPickSaveDirectory,
+                    enabled = !isBusy,
+                    modifier = Modifier.heightIn(min = 40.dp),
+                ) {
+                    Icon(
+                        imageVector = KShareIcons.Folder,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Alterar pasta")
+                }
+                SemanticBadge(
+                    text = "${files.size} arquivo(s)",
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    monospace = true,
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -1278,6 +1301,7 @@ private fun SettingsTabContent(
     onApplyAndRestart: () -> Unit,
     onStopServer: () -> Unit,
     onStartServer: () -> Unit,
+    onPickSaveDirectory: () -> Unit = {},
 ) {
     Box(
         contentAlignment = Alignment.TopCenter,
@@ -1409,6 +1433,48 @@ private fun SettingsTabContent(
                             ) {
                                 Text("Parar servidor")
                             }
+                        }
+                    }
+                }
+            }
+
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                shape = MaterialTheme.shapes.large,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(16.dp),
+                ) {
+                    Text(
+                        text = "Armazenamento de Recebidos",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "Escolha a pasta onde os arquivos recebidos e validados via SHA-256 serao gravados.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    DiagnosticRow(label = "Pasta de recebimento", value = state.saveDirectoryLabel)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = onPickSaveDirectory,
+                            enabled = !state.isBusy,
+                            modifier = Modifier.heightIn(min = 44.dp),
+                        ) {
+                            Icon(
+                                imageVector = KShareIcons.Folder,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Escolher pasta")
                         }
                     }
                 }
