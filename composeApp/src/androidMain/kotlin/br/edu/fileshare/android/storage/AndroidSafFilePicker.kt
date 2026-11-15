@@ -19,6 +19,7 @@ import kotlinx.coroutines.sync.withLock
 class AndroidSafFilePicker(
     private val contentAccess: AndroidContentAccess,
     private val persistPermission: (Uri) -> Unit = {},
+    private val persistTreePermission: (Uri) -> Unit = persistPermission,
     private val logger: FsapLogger? = null,
 ) {
     constructor(
@@ -28,6 +29,9 @@ class AndroidSafFilePicker(
         contentAccess = ContentResolverAccess(activity.applicationContext),
         persistPermission = { uri ->
             tryPersistReadPermission(activity.applicationContext, uri)
+        },
+        persistTreePermission = { uri ->
+            tryPersistReadWritePermission(activity.applicationContext, uri)
         },
         logger = logger,
     ) {
@@ -138,7 +142,7 @@ class AndroidSafFilePicker(
 
     internal fun onTreeSelected(treeUri: Uri?) {
         if (treeUri != null) {
-            runCatching { persistPermission(treeUri) }
+            runCatching { persistTreePermission(treeUri) }
         }
         pendingTreeDeferred?.complete(treeUri)
     }
@@ -153,6 +157,15 @@ class AndroidSafFilePicker(
                     uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION,
                 )
+            }
+        }
+
+        private fun tryPersistReadWritePermission(context: Context, uri: Uri) {
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, flags)
+            }.onFailure {
+                tryPersistReadPermission(context, uri)
             }
         }
     }

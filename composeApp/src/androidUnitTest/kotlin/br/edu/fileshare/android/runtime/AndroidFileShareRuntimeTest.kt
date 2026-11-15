@@ -3,6 +3,7 @@ package br.edu.fileshare.android.runtime
 import br.edu.fileshare.android.network.AndroidMulticastLockManager
 import br.edu.fileshare.android.network.AndroidMulticastTransport
 import br.edu.fileshare.android.network.MulticastLockHandle
+import br.edu.fileshare.android.service.AndroidNodeIdentityHelper
 import br.edu.fileshare.android.service.AndroidPartialWakeLockManager
 import br.edu.fileshare.android.service.FsapForegroundNodeController
 import br.edu.fileshare.android.service.FsapNotificationState
@@ -642,6 +643,109 @@ class AndroidFileShareRuntimeTest {
                 receiverServer.stop()
                 receiverSessions.close()
                 receiverScope.cancel()
+                runtime.close()
+                uiScope.cancel()
+                controller.close()
+                tempRoot.deleteRecursively()
+            }
+        }
+
+    @Test
+    fun formatSaveDirectoryLabelAndPickSaveDirectorySwitchDestinationPublisher() =
+        runBlocking {
+            assertEquals(
+                AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL,
+                AndroidNodeIdentityHelper.formatSaveDirectoryLabel(null),
+            )
+            assertEquals(
+                "Armazenamento Interno/Download/MinhaPasta",
+                AndroidNodeIdentityHelper.formatSaveDirectoryLabel(
+                    "content://com.android.externalstorage.documents/tree/primary%3ADownload%2FMinhaPasta",
+                ),
+            )
+            assertEquals(
+                "1A2B-3C4D/Arquivos",
+                AndroidNodeIdentityHelper.formatSaveDirectoryLabel(
+                    "content://com.android.externalstorage.documents/tree/1A2B-3C4D%3AArquivos",
+                ),
+            )
+
+            val tempRoot = Files.createTempDirectory("fsap-android-dir-switch-").toFile()
+            val stagingDir = File(tempRoot, "staging")
+            val defaultDir = File(tempRoot, "downloads-default")
+            val customDir = File(tempRoot, "downloads-custom")
+            val logger = InMemoryFsapLogger()
+            val controllerFlow = MutableStateFlow<FsapForegroundNodeController?>(null)
+            val approvalCoordinator = InteractiveTransferApprovalCoordinator()
+            lateinit var sink: AndroidFileSink
+
+            val controller = FsapForegroundNodeController(
+                localDeviceId = PlatformUuidGenerator.nextUuidV4(),
+                initialAlias = "Galaxy-Destino",
+                deviceType = DeviceType.TABLET,
+                initialPort = 0,
+                fileSink = AndroidFileSink(
+                    stagingDirectory = stagingDir,
+                    publisher = DirectoryDestinationPublisher(defaultDir),
+                    logger = logger,
+                ).also { sink = it },
+                multicastTransportFactory = {
+                    AndroidMulticastTransport(
+                        lockManager = AndroidMulticastLockManager(lockFactory = { FakeMulticastLock() }, logger = logger),
+                        delegate = InMemoryMulticastTransport(),
+                        logger = logger,
+                    )
+                },
+                localAddressesProvider = { listOf("127.0.0.1") },
+                wakeLockManager = AndroidPartialWakeLockManager(factory = { FakeWakeLock() }, logger = logger),
+                serviceHost = RecordingHost(),
+                approvalHandler = approvalCoordinator,
+                logger = logger,
+            )
+            controllerFlow.value = controller
+
+            val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val runtime = AndroidFileShareRuntime(
+                localDeviceId = controller.localDeviceId,
+                initialAlias = "Galaxy-Destino",
+                initialPort = 0,
+                controllerFlow = controllerFlow,
+                approvalCoordinator = approvalCoordinator,
+                startServiceAndAwaitController = { _, _ -> controller },
+                filePicker = { emptyList() },
+                directoryPicker = {
+                    sink.updatePublisher(DirectoryDestinationPublisher(customDir))
+                    AndroidNodeIdentityHelper.formatSaveDirectoryLabel(
+                        "content://com.android.externalstorage.documents/tree/primary%3ADocuments%2FFileshareCustom",
+                    )
+                },
+                initialAddressesProvider = { listOf("127.0.0.1") },
+                ensureNotificationPermission = { true },
+                logger = logger,
+                parentScope = uiScope,
+                ownsScope = false,
+            )
+
+            val mainVm = FileShareMainViewModel(runtime = runtime, scope = uiScope, logger = logger)
+            try {
+                assertEquals(AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL, mainVm.uiState.value.saveDirectoryLabel)
+
+                mainVm.pickSaveDirectoryInternal()
+                val expectedLabel = "Armazenamento Interno/Documents/FileshareCustom"
+                assertEquals(expectedLabel, mainVm.uiState.value.saveDirectoryLabel)
+                assertEquals(expectedLabel, controller.saveDirectoryLabel.value)
+
+                val data = "novo destino saf".encodeToByteArray()
+                val sha = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(data)
+                    .joinToString("") { "%02x".format(it) }
+                val session = sink.openPartSession("tx-custom", "f1", "destino.txt", data.size.toLong())
+                session.writeChunk(data, 0, data.size)
+                session.commitPart(verifiedSha256 = sha, totalBytesWritten = data.size.toLong())
+
+                assertTrue(File(customDir, "destino.txt").exists())
+                assertFalse(File(defaultDir, "destino.txt").exists())
+            } finally {
                 runtime.close()
                 uiScope.cancel()
                 controller.close()

@@ -349,7 +349,8 @@ class DirectoryDestinationPublisher(
  */
 class AndroidFileSink(
     stagingDirectory: File,
-    private val publisher: AndroidDestinationPublisher,
+    @Volatile
+    private var publisher: AndroidDestinationPublisher,
     private val availableStagingBytesProvider: () -> Long = {
         stagingDirectory.mkdirs()
         stagingDirectory.usableSpace
@@ -382,6 +383,14 @@ class AndroidFileSink(
     private val canonicalStagingDir: File by lazy {
         this.stagingDirectory.mkdirs()
         this.stagingDirectory.canonicalFile
+    }
+
+    fun updatePublisher(newPublisher: AndroidDestinationPublisher) {
+        publisher = newPublisher
+    }
+
+    fun updateSafTreeDestination(appContext: Context, safTreeUri: Uri?) {
+        updatePublisher(createDefaultPublisher(appContext.applicationContext, safTreeUri))
     }
 
     override suspend fun availableStorageBytes(): Long = withContext(Dispatchers.IO) {

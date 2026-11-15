@@ -8,6 +8,7 @@ import br.edu.fileshare.android.service.AndroidNotificationPermissionRequester
 import br.edu.fileshare.android.service.FsapForegroundNodeController
 import br.edu.fileshare.android.service.FsapForegroundService
 import br.edu.fileshare.android.service.FsapServiceRegistry
+import br.edu.fileshare.android.storage.AndroidFileSink
 import br.edu.fileshare.android.storage.AndroidSafFilePicker
 import br.edu.fileshare.core.logging.FsapLogger
 import br.edu.fileshare.core.time.Clock
@@ -37,6 +38,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -52,6 +54,7 @@ class AndroidFileShareRuntime(
     val approvalCoordinator: InteractiveTransferApprovalCoordinator = FsapServiceRegistry.sharedApprovalCoordinator,
     private val startServiceAndAwaitController: suspend (alias: String, port: Int) -> FsapForegroundNodeController,
     private val filePicker: suspend () -> List<FileSource>,
+    private val directoryPicker: suspend () -> String? = { null },
     private val initialAddressesProvider: () -> List<String> = { emptyList() },
     private val ensureNotificationPermission: suspend () -> Boolean = { true },
     val logger: FsapLogger,
@@ -66,7 +69,10 @@ class AndroidFileShareRuntime(
         filePicker: AndroidSafFilePicker,
         permissionRequester: AndroidNotificationPermissionRequester,
         container: AndroidAppContainer = AndroidAppContainer(),
-        saveDirectoryLabel: String = DEFAULT_SAVE_DIRECTORY_LABEL,
+        saveDirectoryLabel: String = FsapServiceRegistry.activeController.value?.saveDirectoryLabel?.value
+            ?: AndroidNodeIdentityHelper.formatSaveDirectoryLabel(
+                AndroidNodeIdentityHelper.getSavedTreeUri(context.applicationContext),
+            ),
     ) : this(
         localDeviceId = AndroidNodeIdentityHelper.getOrCreateDeviceId(context.applicationContext),
         initialAlias = FsapServiceRegistry.activeController.value?.localAlias?.value
@@ -90,6 +96,25 @@ class AndroidFileShareRuntime(
             } ?: throw IllegalStateException("Timeout ao iniciar e vincular FsapForegroundService.")
         },
         filePicker = { filePicker.pickMultipleFiles() },
+        directoryPicker = {
+            val pickedUri = filePicker.pickDestinationDirectory()
+            if (pickedUri == null) {
+                null
+            } else {
+                withContext(Dispatchers.IO) {
+                    val appContext = context.applicationContext
+                    val activeController = FsapServiceRegistry.activeController.value
+                    val label = if (activeController != null) {
+                        activeController.updateDestinationDirectory(appContext, pickedUri)
+                    } else {
+                        AndroidFileSink.createDefaultPublisher(appContext, pickedUri)
+                        AndroidNodeIdentityHelper.formatSaveDirectoryLabel(pickedUri.toString())
+                    }
+                    AndroidNodeIdentityHelper.saveTreeUri(appContext, pickedUri.toString())
+                    label
+                }
+            }
+        },
         initialAddressesProvider = { AndroidNetworkInterfaceProvider().listLocalIpv4Addresses() },
         ensureNotificationPermission = { permissionRequester.ensureNotificationPermission() },
         logger = container.logger,
@@ -126,6 +151,11 @@ class AndroidFileShareRuntime(
         controllerFlow.value?.localAlias?.value ?: initialAlias,
     )
     override val externalLocalAlias: StateFlow<String> = _externalLocalAlias.asStateFlow()
+
+    private val _externalSaveDirectoryLabel = MutableStateFlow(
+        controllerFlow.value?.saveDirectoryLabel?.value ?: saveDirectoryLabel,
+    )
+    override val externalSaveDirectoryLabel: StateFlow<String> = _externalSaveDirectoryLabel.asStateFlow()
 
     private val _tlsEnabled = MutableStateFlow(
         controllerFlow.value?.tlsEnabled?.value ?: false,
@@ -191,6 +221,13 @@ class AndroidFileShareRuntime(
     }
 
     override suspend fun pickFilesToSend(): List<FileSource> = filePicker()
+
+    override suspend fun pickSaveDirectory(): String? {
+        val selectedLabel = directoryPicker()?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        _externalSaveDirectoryLabel.value = selectedLabel
+        controllerFlow.value?.updateSaveDirectoryLabel(selectedLabel)
+        return selectedLabel
+    }
 
     override suspend fun sendFiles(peer: DiscoveredPeer, sources: List<FileSource>): Result<String> {
         val controller = controllerFlow.value
@@ -319,6 +356,13 @@ class AndroidFileShareRuntime(
                         }
                     }
                     launch {
+                        controller.saveDirectoryLabel.collect { label ->
+                            if (label.isNotBlank()) {
+                                _externalSaveDirectoryLabel.value = label
+                            }
+                        }
+                    }
+                    launch {
                         controller.tlsEnabled.collect { enabled ->
                             _tlsEnabled.value = enabled
                         }
@@ -334,7 +378,7 @@ class AndroidFileShareRuntime(
     }
 
     companion object {
-        const val DEFAULT_SAVE_DIRECTORY_LABEL: String = "Downloads/FileShare (MediaStore)"
+        const val DEFAULT_SAVE_DIRECTORY_LABEL: String = AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL
         private const val SERVICE_ATTACH_TIMEOUT_MS: Long = 5_000L
         private const val COMPONENT = "AndroidFileShareRuntime"
 
