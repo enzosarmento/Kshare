@@ -102,3 +102,16 @@ Uma task só pode mudar seu status de `TODO` / `IN_PROGRESS` para `DONE` quando 
 4. Nenhum warning crítico de compilação ou vazamento de coroutine/socket foi introduzido.
 5. Pull Request revisado por pelo menos um par e integrado na branch `develop`.
 
+---
+
+## 8. Desenvolvimento Assistido por IA e Branch `ai-workspace`
+
+Para manter `develop` e `main` focadas no código-fonte, build e documentação técnica do sistema, os artefatos completos de apoio à IA e ao design ficam armazenados na branch **`ai-workspace`**:
+
+- **Skills especializadas (`.agent/skills/*/SKILL.md`):** diretrizes técnicas de protocolo FSAP/1.0, arquitetura KMP, Compose Multiplatform, sistema de arquivos Android, streaming `64 KB`, rede/Ktor, UDP Multicast, segurança e testes.
+- **Diretrizes de UI/UX e IHC:** `DESIGN_GUIDELINES.md`.
+- **Protótipos e backlog:** `design/` (referências Google Stitch) e `tasks/`.
+
+As branches `develop` e `main` mantêm o arquivo guia [`AGENTS.md`](AGENTS.md) na raiz, que referencia esses documentos na branch `ai-workspace` (via `git show ai-workspace:...`) e resume as invariantes obrigatórias que todo agente de IA ou colaborador deve respeitar antes de modificar o projeto.
+
+
