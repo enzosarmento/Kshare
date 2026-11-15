@@ -10,7 +10,7 @@ import kotlin.test.assertEquals
 class ProjectInfoTest {
     @Test
     fun verifyProjectMetadataConstants() {
-        assertEquals("FileShare", ProjectInfo.PROJECT_NAME)
+        assertEquals("KShare", ProjectInfo.PROJECT_NAME)
         assertEquals("FSAP", ProjectInfo.PROTOCOL_NAME)
         assertEquals("1.0", ProjectInfo.PROTOCOL_VERSION)
     }
