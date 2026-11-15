@@ -201,7 +201,7 @@ fileshare/
 | **Mensagens** | [`docs/protocol-messages.md`](docs/protocol-messages.md) | Contratos campo a campo das 12 mensagens JSON e exemplos válidos/inválidos |
 | **Estados e Fluxos** | [`docs/state-machine.md`](docs/state-machine.md) · [`docs/communication-flows.md`](docs/communication-flows.md) | Máquinas de estados formais e diagramas de sequência Mermaid de ponta a ponta |
 | **Rede e Streaming** | [`docs/discovery.md`](docs/discovery.md) · [`docs/transfer-flow.md`](docs/transfer-flow.md) | UDP Multicast (`239.255.70.83:53318`), TTL `18 s`, chunks `64 KB`, `.part` e `SHA-256` |
-| **Segurança e Erros** | [`docs/security.md`](docs/security.md) · [`docs/error-codes.md`](docs/error-codes.md) | *Path Traversal*, `transferToken`, anti-DoS, TLS opcional e 17 códigos `FSAP-ERR-*` |
+| **Segurança e Erros** | [`SECURITY.md`](SECURITY.md) · [`docs/security.md`](docs/security.md) · [`docs/error-codes.md`](docs/error-codes.md) | Política de segurança, *Path Traversal*, `transferToken`, anti-DoS, TLS/TOFU e 17 códigos `FSAP-ERR-*` |
 | **Arquitetura e ADRs** | [`docs/architecture.md`](docs/architecture.md) · [`docs/decisions/README.md`](docs/decisions/README.md) | Arquitetura KMP em camadas e registros de decisão (`ADR-001` a `ADR-006`) |
 | **Testes e Relatório** | [`docs/protocol-test-cases.md`](docs/protocol-test-cases.md) · [`docs/testing.md`](docs/testing.md) · [`docs/academic-foundation.md`](docs/academic-foundation.md) | Catálogo `TC-FSAP-001..026`, roteiro LAN e relatório acadêmico final consolidado |
 | **Gestão e Backlog** | [`tasks/backlog.md`](tasks/backlog.md) · [`tasks/milestones.md`](tasks/milestones.md) · [`tasks/dependency-graph.md`](tasks/dependency-graph.md) | Backlog (`47 / 47 DONE`), milestones M0–M6 e grafo de dependências |
