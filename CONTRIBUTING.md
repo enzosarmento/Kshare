@@ -1,6 +1,6 @@
-# Guia de Colaboração e Engenharia — Equipe FileShare
+# Guia de Colaboração e Engenharia — KShare
 
-> **Escopo:** Convenções técnicas, fluxo de trabalho Git, processo de revisão e critérios de qualidade para o desenvolvimento colaborativo do projeto **FileShare** por uma equipe de 4 pessoas (Seção 10).  
+> **Escopo:** Convenções técnicas, fluxo de trabalho Git, processo de revisão e critérios de qualidade para o desenvolvimento colaborativo do projeto **KShare (FSAP/1.0)** por uma equipe de 4 pessoas (Seção 10).  
 > **Nota:** Este documento não atribui responsabilidades nominais fixas; qualquer integrante pode assumir tasks das trilhas paralelas respeitando as regras abaixo.
 
 ---
