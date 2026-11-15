@@ -258,4 +258,46 @@ class DesktopNioFileStorageTest {
                 }
             }
         }
+
+    @Test
+    fun `setTargetDirectory redireciona novas sessoes sem corromper sessao ja aberta`() =
+        runTest {
+            withTempDir("fileshare-retarget-") { root ->
+                val dirA = Files.createDirectories(root.resolve("pasta-a"))
+                val dirB = Files.createDirectories(root.resolve("pasta-b"))
+                val sink = DesktopNioFileSink(dirA)
+
+                val payloadA = "arquivo-em-andamento".encodeToByteArray()
+                val shaA = IncrementalSha256Channel.computeDigest(
+                    br.edu.fileshare.storage.InMemoryFileSource("a.txt", payloadA),
+                ).sha256Hex
+                val sessionA = sink.openPartSession("t-retarget-a", "f-1", "a.txt", payloadA.size.toLong())
+                sessionA.writeChunk(payloadA, 0, payloadA.size)
+
+                // Altera pasta de destino antes de finalizar sessionA
+                val resolvedB = sink.setTargetDirectory(dirB)
+                assertEquals(dirB.toAbsolutePath().normalize(), resolvedB)
+                assertEquals(dirB.toAbsolutePath().normalize(), sink.targetDirectory)
+
+                // Sessao antiga ainda promove atomicamente para pasta-a (onde abriu o .part)
+                sessionA.flushAndSync()
+                val storedA = sessionA.commitPart(shaA, payloadA.size.toLong())
+                assertEquals("a.txt", storedA.finalName)
+                assertContentEquals(payloadA, Files.readAllBytes(dirA.resolve("a.txt")))
+                assertFalse(Files.exists(dirB.resolve("a.txt")))
+
+                // Nova sessao aberta apos a mudanca vai para pasta-b
+                val payloadB = "arquivo-na-nova-pasta".encodeToByteArray()
+                val shaB = IncrementalSha256Channel.computeDigest(
+                    br.edu.fileshare.storage.InMemoryFileSource("b.txt", payloadB),
+                ).sha256Hex
+                val sessionB = sink.openPartSession("t-retarget-b", "f-1", "b.txt", payloadB.size.toLong())
+                sessionB.writeChunk(payloadB, 0, payloadB.size)
+                sessionB.flushAndSync()
+                val storedB = sessionB.commitPart(shaB, payloadB.size.toLong())
+                assertEquals("b.txt", storedB.finalName)
+                assertContentEquals(payloadB, Files.readAllBytes(dirB.resolve("b.txt")))
+                assertFalse(Files.exists(dirA.resolve("b.txt")))
+            }
+        }
 }

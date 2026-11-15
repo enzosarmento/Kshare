@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.file.Files
+import java.nio.file.Path
 import javax.swing.JFileChooser
 import javax.swing.UIManager
 
@@ -48,6 +49,51 @@ object DesktopFilePicker {
                     null
                 }
             }
+    }
+
+    /**
+     * Abre o dialogo de selecao de diretorio na EDT do Swing para gravacao de arquivos recebidos.
+     */
+    suspend fun pickDestinationDirectory(
+        dialogTitle: String = "Selecionar pasta para arquivos recebidos",
+        initialDirectory: Path? = defaultInitialDirectory()?.toPath(),
+    ): Path? = withContext(Dispatchers.Main) {
+        runCatching {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName())
+        }
+
+        val initialFile = initialDirectory
+            ?.toAbsolutePath()
+            ?.normalize()
+            ?.toFile()
+            ?.let { dir ->
+                when {
+                    dir.isDirectory -> dir
+                    dir.parentFile?.isDirectory == true -> dir.parentFile
+                    else -> defaultInitialDirectory()
+                }
+            }
+            ?: defaultInitialDirectory()
+
+        val chooser = JFileChooser(initialFile).apply {
+            this.dialogTitle = dialogTitle
+            isMultiSelectionEnabled = false
+            fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+            isFileHidingEnabled = false
+        }
+
+        val result = chooser.showOpenDialog(null)
+        if (result != JFileChooser.APPROVE_OPTION) {
+            return@withContext null
+        }
+
+        val selected = chooser.selectedFile ?: return@withContext null
+        val path = selected.toPath().toAbsolutePath().normalize()
+        if (Files.exists(path) && !Files.isDirectory(path)) {
+            path.parent
+        } else {
+            path
+        }
     }
 
     private fun defaultInitialDirectory(): File? {

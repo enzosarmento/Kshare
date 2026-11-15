@@ -22,6 +22,7 @@ import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.util.concurrent.CopyOnWriteArraySet
 
 /**
  * Leitor de arquivo local em streaming via `java.nio.file` (`TASK-DCLI-004`).
@@ -96,18 +97,35 @@ class DesktopNioFileSink(
     private val onCommitted: (StoredFileDescriptor) -> Unit = {},
 ) : FileSink {
 
-    val targetDirectory: Path = targetDirectory.toAbsolutePath().normalize()
-    val stagingDirectory: Path = this.targetDirectory.resolve(STAGING_DIR_NAME).normalize()
+    @Volatile
+    var targetDirectory: Path = targetDirectory.toAbsolutePath().normalize()
+        private set
+
+    val stagingDirectory: Path
+        get() = targetDirectory.resolve(STAGING_DIR_NAME).normalize()
 
     private val commitMutex = Mutex()
-    private val canonicalTargetDir: Path by lazy {
-        ensureDirectoriesExist()
-        this.targetDirectory.toRealPath()
+    private val directoryLock = Any()
+    private val knownStagingDirs = CopyOnWriteArraySet<Path>().apply {
+        add(targetDirectory.toAbsolutePath().normalize().resolve(STAGING_DIR_NAME).normalize())
+    }
+
+    fun setTargetDirectory(newDirectory: Path): Path = synchronized(directoryLock) {
+        val normalized = newDirectory.toAbsolutePath().normalize()
+        ensureDirectoriesExist(normalized)
+        if (!Files.isWritable(normalized)) {
+            throw IOException("Diretorio selecionado sem permissao de escrita: $normalized")
+        }
+        val staging = normalized.resolve(STAGING_DIR_NAME).normalize()
+        knownStagingDirs.add(staging)
+        targetDirectory = normalized
+        normalized
     }
 
     override suspend fun availableStorageBytes(): Long = withContext(Dispatchers.IO) {
-        ensureDirectoriesExist()
-        usableSpaceProvider(this@DesktopNioFileSink.targetDirectory)
+        val currentDir = targetDirectory
+        ensureDirectoriesExist(currentDir)
+        usableSpaceProvider(currentDir)
     }
 
     override suspend fun openPartSession(
@@ -120,8 +138,13 @@ class DesktopNioFileSink(
         val safeTransferToken = sanitizeIdentifier(transferId, "transferId")
         val safeFileToken = sanitizeIdentifier(fileId, "fileId")
 
-        ensureDirectoriesExist()
-        val usable = usableSpaceProvider(targetDirectory)
+        val sessionTargetDir = targetDirectory
+        val sessionStagingDir = sessionTargetDir.resolve(STAGING_DIR_NAME).normalize()
+        knownStagingDirs.add(sessionStagingDir)
+        ensureDirectoriesExist(sessionTargetDir)
+        val canonicalTarget = sessionTargetDir.toRealPath()
+
+        val usable = usableSpaceProvider(sessionTargetDir)
         if (expectedSizeBytes > 0L && usable < expectedSizeBytes) {
             throw FsapProtocolException(
                 errorCode = FsapErrorCode.INSUFFICIENT_STORAGE,
@@ -132,7 +155,7 @@ class DesktopNioFileSink(
         }
 
         val partId = "${safeTransferToken}_${safeFileToken}$PART_EXTENSION"
-        val partPath = resolveContainedStagingPath(partId)
+        val partPath = resolveContainedStagingPath(sessionStagingDir, partId)
         val channel = FileChannel.open(
             partPath,
             StandardOpenOption.CREATE,
@@ -146,21 +169,25 @@ class DesktopNioFileSink(
             expectedSizeBytes = expectedSizeBytes,
             partIdentifier = partId,
             partPath = partPath,
+            sessionTargetDir = sessionTargetDir,
+            canonicalTargetDir = canonicalTarget,
             channel = channel,
         )
     }
 
     override suspend fun cleanupTransferParts(transferId: String): Int = withContext(Dispatchers.IO) {
-        if (!Files.isDirectory(stagingDirectory)) return@withContext 0
         val safeTransferToken = sanitizeIdentifier(transferId, "transferId")
         val prefix = "${safeTransferToken}_"
         var deletedCount = 0
-        Files.newDirectoryStream(stagingDirectory).use { stream ->
-            for (entry in stream) {
-                val name = entry.fileName?.toString().orEmpty()
-                if (name.startsWith(prefix) && name.endsWith(PART_EXTENSION)) {
-                    if (Files.deleteIfExists(entry)) {
-                        deletedCount++
+        for (dir in knownStagingDirs) {
+            if (!Files.isDirectory(dir)) continue
+            Files.newDirectoryStream(dir).use { stream ->
+                for (entry in stream) {
+                    val name = entry.fileName?.toString().orEmpty()
+                    if (name.startsWith(prefix) && name.endsWith(PART_EXTENSION)) {
+                        if (Files.deleteIfExists(entry)) {
+                            deletedCount++
+                        }
                     }
                 }
             }
@@ -168,13 +195,13 @@ class DesktopNioFileSink(
         deletedCount
     }
 
-    private fun ensureDirectoriesExist() {
-        Files.createDirectories(targetDirectory)
-        Files.createDirectories(stagingDirectory)
+    private fun ensureDirectoriesExist(baseDir: Path) {
+        Files.createDirectories(baseDir)
+        Files.createDirectories(baseDir.resolve(STAGING_DIR_NAME).normalize())
     }
 
-    private fun resolveContainedStagingPath(partFileName: String): Path {
-        val canonicalStaging = stagingDirectory.toRealPath()
+    private fun resolveContainedStagingPath(sessionStagingDir: Path, partFileName: String): Path {
+        val canonicalStaging = sessionStagingDir.toRealPath()
         val candidate = canonicalStaging.resolve(partFileName).normalize()
         if (candidate.parent != canonicalStaging || !candidate.startsWith(canonicalStaging)) {
             throw FsapProtocolException(
@@ -185,7 +212,7 @@ class DesktopNioFileSink(
         return candidate
     }
 
-    private fun resolveContainedTargetPath(finalName: String): Path {
+    private fun resolveContainedTargetPath(canonicalTargetDir: Path, finalName: String): Path {
         val sanitized = FileNameSanitizer.requireValid(finalName)
         val candidate = try {
             canonicalTargetDir.resolve(sanitized).normalize()
@@ -212,6 +239,8 @@ class DesktopNioFileSink(
         private val expectedSizeBytes: Long,
         override val partIdentifier: String,
         private val partPath: Path,
+        private val sessionTargetDir: Path,
+        private val canonicalTargetDir: Path,
         private val channel: FileChannel,
     ) : StagedFileSession {
 
@@ -233,7 +262,7 @@ class DesktopNioFileSink(
             withContext(Dispatchers.IO) {
                 val remainingRequired = (expectedSizeBytes - bytesWritten).coerceAtLeast(length.toLong())
                 val usable = runCatching {
-                    usableSpaceProvider(this@DesktopNioFileSink.targetDirectory)
+                    usableSpaceProvider(sessionTargetDir)
                 }.getOrNull()
                 if (usable != null && usable < remainingRequired) {
                     throw FsapProtocolException(
@@ -251,7 +280,7 @@ class DesktopNioFileSink(
                     bytesWritten = nextTotal
                 } catch (io: IOException) {
                     val lowSpaceAfterIo = runCatching {
-                        usableSpaceProvider(this@DesktopNioFileSink.targetDirectory) < remainingRequired
+                        usableSpaceProvider(sessionTargetDir) < remainingRequired
                     }.getOrDefault(false)
                     if (lowSpaceAfterIo) {
                         throw FsapProtocolException(
@@ -303,10 +332,10 @@ class DesktopNioFileSink(
                     channel.close()
                 }
                 val resolvedName = FileNameSanitizer.resolveNonOverwritingName(sanitizedFileName) { candidate ->
-                    val candidatePath = resolveContainedTargetPath(candidate)
+                    val candidatePath = resolveContainedTargetPath(canonicalTargetDir, candidate)
                     Files.exists(candidatePath)
                 }
-                val finalPath = resolveContainedTargetPath(resolvedName)
+                val finalPath = resolveContainedTargetPath(canonicalTargetDir, resolvedName)
                 moveAtomicallyWithoutOverwrite(partPath, finalPath)
                 finished = true
                 StoredFileDescriptor(

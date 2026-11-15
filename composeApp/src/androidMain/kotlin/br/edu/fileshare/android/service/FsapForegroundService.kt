@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -63,6 +64,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 
 /**
  * Abstracao testavel de `PowerManager.WakeLock` parcial (`TASK-AND-003`).
@@ -206,6 +209,8 @@ object AndroidNodeIdentityHelper {
     private const val PREFS_NAME = "fileshare_fsap_prefs"
     private const val KEY_DEVICE_ID = "local_device_id"
     private const val KEY_DEVICE_ALIAS = "local_device_alias"
+    private const val KEY_SAVE_TREE_URI = "local_save_tree_uri"
+    const val DEFAULT_SAVE_DIRECTORY_LABEL: String = "Downloads/FileShare (MediaStore)"
 
     fun getOrCreateDeviceId(
         context: Context,
@@ -231,6 +236,50 @@ object AndroidNodeIdentityHelper {
         val clean = sanitizeAlias(alias)
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putString(KEY_DEVICE_ALIAS, clean).apply()
+    }
+
+    fun getSavedTreeUri(context: Context): String? {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_SAVE_TREE_URI, null)?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    fun saveTreeUri(context: Context, treeUri: String?) {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val clean = treeUri?.trim()?.takeIf { it.isNotEmpty() }
+        if (clean == null) {
+            prefs.edit().remove(KEY_SAVE_TREE_URI).apply()
+        } else {
+            prefs.edit().putString(KEY_SAVE_TREE_URI, clean).apply()
+        }
+    }
+
+    fun formatSaveDirectoryLabel(treeUriString: String?): String {
+        val raw = treeUriString?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return DEFAULT_SAVE_DIRECTORY_LABEL
+        val decoded = runCatching {
+            URLDecoder.decode(raw, StandardCharsets.UTF_8.name())
+        }.getOrDefault(raw)
+        val treePart = decoded.substringAfter("/tree/", missingDelimiterValue = "")
+            .substringBefore("/document/")
+            .trim('/')
+        if (treePart.isNotBlank()) {
+            val cleanSegment = when {
+                treePart.startsWith("primary:", ignoreCase = true) -> {
+                    val sub = treePart.substringAfter(':').trim('/')
+                    if (sub.isNotBlank()) "Armazenamento Interno/$sub" else "Armazenamento Interno"
+                }
+                treePart.contains(':') -> {
+                    val root = treePart.substringBefore(':').trim()
+                    val sub = treePart.substringAfter(':').trim('/')
+                    if (sub.isNotBlank()) "$root/$sub" else root
+                }
+                else -> treePart
+            }.trimEnd('/')
+            if (cleanSegment.isNotBlank()) {
+                return cleanSegment
+            }
+        }
+        return decoded
     }
 
     fun detectDeviceType(context: Context): DeviceType {
@@ -275,6 +324,7 @@ class FsapForegroundNodeController(
     private val autoSelectPortOnConflict: Boolean = true,
     parentScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val ownsScope: Boolean = true,
+    initialSaveDirectoryLabel: String = AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL,
 ) {
     private val controllerScope = CoroutineScope(
         parentScope.coroutineContext + SupervisorJob(parentScope.coroutineContext[Job]),
@@ -314,6 +364,11 @@ class FsapForegroundNodeController(
 
     private val _localTlsFingerprint = MutableStateFlow<String?>(null)
     val localTlsFingerprint: StateFlow<String?> = _localTlsFingerprint.asStateFlow()
+
+    private val _saveDirectoryLabel = MutableStateFlow(
+        initialSaveDirectoryLabel.ifBlank { AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL },
+    )
+    val saveDirectoryLabel: StateFlow<String> = _saveDirectoryLabel.asStateFlow()
 
     private val tokenManager = TransferTokenManager(
         clock = clock,
@@ -359,6 +414,18 @@ class FsapForegroundNodeController(
 
     internal fun recordCommittedFile(descriptor: StoredFileDescriptor) {
         _receivedFiles.update { current -> listOf(descriptor) + current }
+    }
+
+    fun updateSaveDirectoryLabel(label: String) {
+        _saveDirectoryLabel.value = label.ifBlank { AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL }
+    }
+
+    fun updateDestinationDirectory(appContext: Context, treeUri: Uri?): String {
+        val androidSink = fileSink as? AndroidFileSink
+        androidSink?.updateSafTreeDestination(appContext, treeUri)
+        val formattedLabel = AndroidNodeIdentityHelper.formatSaveDirectoryLabel(treeUri?.toString())
+        _saveDirectoryLabel.value = formattedLabel
+        return formattedLabel
     }
 
     suspend fun restartNode(
@@ -768,12 +835,33 @@ class FsapForegroundService : Service(), FsapServiceHost {
         val logger = container.logger
         val interfaceProvider = AndroidNetworkInterfaceProvider()
 
+        val savedTreeUriString = AndroidNodeIdentityHelper.getSavedTreeUri(appContext)
+        var effectiveSaveLabel = AndroidNodeIdentityHelper.formatSaveDirectoryLabel(savedTreeUriString)
+        val savedTreeUri = savedTreeUriString?.let { raw -> runCatching { Uri.parse(raw) }.getOrNull() }
+
         lateinit var createdController: FsapForegroundNodeController
-        val sink = AndroidFileSink(
-            context = appContext,
-            onCommitted = { descriptor -> createdController.recordCommittedFile(descriptor) },
-            logger = logger,
-        )
+        val sink = runCatching {
+            AndroidFileSink(
+                context = appContext,
+                safTreeUri = savedTreeUri,
+                onCommitted = { descriptor -> createdController.recordCommittedFile(descriptor) },
+                logger = logger,
+            )
+        }.getOrElse { err ->
+            logger.warn(
+                component = "FsapForegroundService",
+                message = "Pasta SAF salva invalida ($savedTreeUriString); retornando ao diretorio padrao: ${err.message}",
+                throwable = err,
+            )
+            AndroidNodeIdentityHelper.saveTreeUri(appContext, null)
+            effectiveSaveLabel = AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL
+            AndroidFileSink(
+                context = appContext,
+                safTreeUri = null,
+                onCommitted = { descriptor -> createdController.recordCommittedFile(descriptor) },
+                logger = logger,
+            )
+        }
         createdController = FsapForegroundNodeController(
             localDeviceId = AndroidNodeIdentityHelper.getOrCreateDeviceId(appContext),
             initialAlias = AndroidNodeIdentityHelper.getSavedAliasOrDefault(appContext),
@@ -789,6 +877,7 @@ class FsapForegroundService : Service(), FsapServiceHost {
             approvalHandler = FsapServiceRegistry.sharedApprovalCoordinator,
             logger = logger,
             clock = container.clock,
+            initialSaveDirectoryLabel = effectiveSaveLabel,
         )
         controller = createdController
         FsapServiceRegistry.attach(createdController)

@@ -8,6 +8,7 @@ import br.edu.fileshare.protocol.statemachine.LocalNodeState
 import br.edu.fileshare.protocol.statemachine.LocalNodeStateMachine
 import br.edu.fileshare.storage.FileSource
 import br.edu.fileshare.storage.StoredFileDescriptor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,6 +43,8 @@ interface FileShareRuntimePort {
         get() = null
     val externalLocalAlias: StateFlow<String>?
         get() = null
+    val externalSaveDirectoryLabel: StateFlow<String>?
+        get() = null
 
     val tlsEnabled: StateFlow<Boolean>?
         get() = null
@@ -58,6 +61,7 @@ interface FileShareRuntimePort {
 
     suspend fun stopNode()
     suspend fun pickFilesToSend(): List<FileSource>
+    suspend fun pickSaveDirectory(): String? = null
     suspend fun sendFiles(peer: DiscoveredPeer, sources: List<FileSource>): Result<String>
     suspend fun refreshDiscovery(): Result<Unit> = Result.success(Unit)
 }
@@ -112,7 +116,8 @@ class FileShareMainViewModel(
             localDeviceId = runtime.localDeviceId,
             localAlias = runtime.initialAlias,
             boundHttpPort = runtime.initialPort,
-            saveDirectoryLabel = runtime.saveDirectoryLabel,
+            saveDirectoryLabel = runtime.externalSaveDirectoryLabel?.value?.takeIf { it.isNotBlank() }
+                ?: runtime.saveDirectoryLabel,
             localAddresses = runtime.localAddresses.value,
             nodeState = nodeFsm.currentState(),
             aliasDraft = runtime.initialAlias,
@@ -200,6 +205,16 @@ class FileShareMainViewModel(
                                 )
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        runtime.externalSaveDirectoryLabel?.let { directoryFlow ->
+            scope.launch {
+                directoryFlow.collectLatest { label ->
+                    if (label.isNotBlank()) {
+                        _uiState.update { it.copy(saveDirectoryLabel = label) }
                     }
                 }
             }
@@ -406,9 +421,38 @@ class FileShareMainViewModel(
                     state.copy(selectedFiles = merged)
                 }
             }
+        } catch (ex: CancellationException) {
+            throw ex
         } catch (ex: Throwable) {
             _uiState.update {
                 it.copy(statusBanner = "Erro ao selecionar arquivos: ${ex.message ?: "falha de I/O"}")
+            }
+        } finally {
+            _uiState.update { it.copy(isBusy = false) }
+        }
+    }
+
+    fun pickSaveDirectory() {
+        scope.launch { pickSaveDirectoryInternal() }
+    }
+
+    internal suspend fun pickSaveDirectoryInternal() {
+        _uiState.update { it.copy(isBusy = true, statusBanner = null) }
+        try {
+            val selectedLabel = runtime.pickSaveDirectory()?.trim()
+            if (!selectedLabel.isNullOrBlank()) {
+                _uiState.update {
+                    it.copy(
+                        saveDirectoryLabel = selectedLabel,
+                        statusBanner = "Pasta de recebimento alterada para: $selectedLabel",
+                    )
+                }
+            }
+        } catch (ex: CancellationException) {
+            throw ex
+        } catch (ex: Throwable) {
+            _uiState.update {
+                it.copy(statusBanner = "Erro ao selecionar pasta de destino: ${ex.message ?: "falha de I/O"}")
             }
         } finally {
             _uiState.update { it.copy(isBusy = false) }
