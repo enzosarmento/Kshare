@@ -91,6 +91,25 @@ kotlin {
     }
 }
 
+fun resolveReleaseVersion(): String {
+    val raw = (project.findProperty("kshareVersion") as? String)
+        ?.trim()
+        ?.removePrefix("v")
+        ?.substringBefore("-")
+        .orEmpty()
+    return when {
+        Regex("""\d+\.\d+\.\d+""").matches(raw) -> raw
+        Regex("""\d+\.\d+""").matches(raw) -> "$raw.0"
+        else -> "1.1.0"
+    }
+}
+
+val ksharePackageVersion = resolveReleaseVersion()
+val kshareVersionCode = (project.findProperty("kshareVersionCode") as? String)
+    ?.trim()
+    ?.toIntOrNull()
+    ?: 2
+
 android {
     namespace = "br.edu.fileshare"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -99,8 +118,8 @@ android {
         applicationId = "br.edu.fileshare"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "0.1.0-M0"
+        versionCode = kshareVersionCode
+        versionName = ksharePackageVersion
     }
 
     packaging {
@@ -137,15 +156,25 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "KShare"
-            packageVersion = "1.0.0"
+            packageVersion = ksharePackageVersion
+            description = "Transferencia P2P de arquivos na rede local (FSAP/1.0)"
+            vendor = "KShare Project"
             includeAllModules = true
 
             linux {
                 shortcut = true
+                menuGroup = "Network;FileTransfer;"
+                appCategory = "Network"
                 iconFile.set(project.file("src/desktopMain/resources/kshare-icon.png"))
             }
             windows {
                 iconFile.set(project.file("src/desktopMain/resources/kshare-icon.ico"))
+                dirChooser = true
+                perUserInstall = true
+                menu = true
+                menuGroup = "KShare"
+                shortcut = true
+                upgradeUuid = "8f7a4f70-2e38-4b75-b2c8-9a4e7c10d402"
             }
             macOS {
                 iconFile.set(project.file("src/desktopMain/resources/kshare-icon.icns"))

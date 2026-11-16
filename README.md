@@ -8,7 +8,7 @@ Aplicação multiplataforma em **Kotlin e Compose Multiplatform** baseada no pro
 [![Ktor CIO](https://img.shields.io/badge/Ktor_CIO-3.0.3-087CFA)](https://ktor.io/)
 [![Platforms](https://img.shields.io/badge/Plataformas-Linux_%7C_Windows_%7C_Android_8.0%2B-2EA44F)](#downloads-e-releases)
 [![Protocol](https://img.shields.io/badge/Protocolo-FSAP%2F1.0-0A66C2)](docs/protocol-fsap.md)
-[![Release](https://img.shields.io/badge/Release-v1.0.0-1F883D)](https://github.com/enzosarmento/file-share/releases/latest)
+[![Release](https://img.shields.io/github/v/release/enzosarmento/file-share?label=Release&color=1F883D)](https://github.com/enzosarmento/file-share/releases/latest)
 [![License](https://img.shields.io/badge/Licen%C3%A7a-MIT-0A66C2)](LICENSE)
 
 O **KShare** conecta computadores (**Linux e Windows**, via interface gráfica Desktop ou servidor headless CLI) e dispositivos **Android** conectados à mesma rede local (**Wi-Fi / Ethernet**) para envio direto de arquivos — sem servidores externos, sem criação de contas e sem limites artificiais de tamanho.
@@ -19,24 +19,28 @@ O **KShare** conecta computadores (**Linux e Windows**, via interface gráfica D
 
 ## Downloads e Releases
 
-Os binários pré-compilados ficam disponíveis na página de [Releases do GitHub](https://github.com/enzosarmento/file-share/releases/latest) e são gerados automaticamente pelo workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) a cada tag `v*`:
+Os instaladores e binários pré-compilados ficam disponíveis para **download direto** na aba de [Releases do GitHub](https://github.com/enzosarmento/file-share/releases/latest) e são gerados automaticamente para **Linux, Windows e Android** pelo workflow [`.github/workflows/release.yml`](.github/workflows/release.yml):
 
-| Plataforma / Alvo | Artefato na Release | Como Instalar / Executar |
+| Plataforma / Alvo | Download Direto (Última Release) | Como Instalar / Executar |
 | :--- | :--- | :--- |
-| **Android (`8.0+ / API 26–35`)** | `kshare-android-v1.0.0.apk` | Baixe e instale diretamente no aparelho, arraste para o emulador ou execute `adb install -r kshare-android-v1.0.0.apk`. |
-| **Servidor Desktop Independente (`Linux / Windows`)** | `kshare-server-v1.0.0-all.jar` | Execute sem depender da GUI com `java -jar kshare-server-v1.0.0-all.jar --port 53317`. |
-| **Verificação de Integridade** | `SHA256SUMS.txt` | Valide os artefatos baixados no mesmo diretório com `sha256sum -c SHA256SUMS.txt`. |
+| **Android (`8.0+ / API 26–35`)** | [`kshare-android.apk`](https://github.com/enzosarmento/file-share/releases/latest/download/kshare-android.apk) | Baixe e instale diretamente no aparelho, arraste para o emulador ou execute `adb install -r kshare-android.apk`. |
+| **Desktop Linux (`.deb` — Debian / Ubuntu / Mint)** | [`kshare-linux-amd64.deb`](https://github.com/enzosarmento/file-share/releases/latest/download/kshare-linux-amd64.deb) | Instale via terminal com `sudo dpkg -i kshare-linux-amd64.deb` (ou abrindo o arquivo no gerenciador de pacotes). |
+| **Desktop Windows (64-bit — Instalador)** | [`kshare-windows-x64.msi`](https://github.com/enzosarmento/file-share/releases/latest/download/kshare-windows-x64.msi) | Execute o instalador `.msi` (não requer privilégios de administrador) e abra o app **KShare** pelo Menu Iniciar. |
+| **Desktop Windows (64-bit — Portável)** | [`kshare-windows-x64-portable.zip`](https://github.com/enzosarmento/file-share/releases/latest/download/kshare-windows-x64-portable.zip) | Extraia o arquivo `.zip` e execute `KShare/KShare.exe` diretamente sem instalação. |
+| **Servidor Desktop Independente (`Linux / Windows`)** | [`kshare-server-all.jar`](https://github.com/enzosarmento/file-share/releases/latest/download/kshare-server-all.jar) | Execute sem depender da GUI com `java -jar kshare-server-all.jar --port 53317`. |
+| **Verificação de Integridade** | [`SHA256SUMS.txt`](https://github.com/enzosarmento/file-share/releases/latest/download/SHA256SUMS.txt) | Valide os artefatos baixados no mesmo diretório com `sha256sum -c SHA256SUMS.txt`. |
 
 ### Gerar os artefatos de release localmente ou publicar uma nova versão
 
-Para empacotar os binários e gerar o arquivo de checksums na pasta local `dist/`:
+Para empacotar localmente em `dist/` os binários suportados pelo seu sistema operacional (no Linux: APK, `.deb` e `.jar`; no Windows: `.msi`, `.zip` portável e `.jar`):
 ```bash
-./scripts/prepare-release-assets.sh v1.0.0
+./scripts/prepare-release-assets.sh v1.1.0
 ```
-Para disparar a publicação automática da release no GitHub com o APK e o JAR anexados:
+Para disparar a compilação multiplataforma no GitHub Actions (`ubuntu-latest` + `windows-latest`) e publicar a Release com todos os instaladores anexados:
 ```bash
-git tag v1.0.0 && git push origin v1.0.0
+git tag v1.1.0 && git push origin v1.1.0
 ```
+*(Também é possível disparar manualmente pela aba **Actions -> Release KShare -> Run workflow** no GitHub).*
 
 ---
 
