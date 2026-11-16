@@ -38,7 +38,21 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "${SDK_DIR}" ]; then
+            echo "[ERRO] Android SDK nao encontrado em ${SDK_DIR}" >&2
+            exit 1
+          fi
+          echo "ANDROID_HOME=${SDK_DIR}" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=${SDK_DIR}" >> "$GITHUB_ENV"
+          SDKMANAGER="$(find "${SDK_DIR}/cmdline-tools" -type f -name 'sdkmanager' 2>/dev/null | sort -V | tail -n 1 || true)"
+          if [ -z "${SDKMANAGER}" ]; then
+            echo "[ERRO] sdkmanager nao encontrado em ${SDK_DIR}/cmdline-tools" >&2
+            exit 1
+          fi
+          (printf 'y\n%.0s' {1..30} | "${SDKMANAGER}" --sdk_root="${SDK_DIR}" --licenses >/dev/null) || true
+          "${SDKMANAGER}" --sdk_root="${SDK_DIR}" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Resolver versao da release
         run: |
@@ -90,7 +104,24 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
+        shell: bash
+        run: |
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-C:\\Android\\android-sdk}}"
+          SDK_DIR_UNIX="$(cygpath -u "${SDK_DIR}" 2>/dev/null || echo "${SDK_DIR}")"
+          if [ ! -d "${SDK_DIR_UNIX}" ]; then
+            echo "[ERRO] Android SDK nao encontrado em ${SDK_DIR}" >&2
+            exit 1
+          fi
+          SDK_DIR_WIN="$(cygpath -w "${SDK_DIR_UNIX}" 2>/dev/null || echo "${SDK_DIR}")"
+          echo "ANDROID_HOME=${SDK_DIR_WIN}" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=${SDK_DIR_WIN}" >> "$GITHUB_ENV"
+          SDKMANAGER="$(find "${SDK_DIR_UNIX}/cmdline-tools" -type f -name 'sdkmanager.bat' 2>/dev/null | sort -V | tail -n 1 || true)"
+          if [ -n "${SDKMANAGER}" ]; then
+            (printf 'y\n%.0s' {1..30} | "${SDKMANAGER}" --sdk_root="${SDK_DIR_WIN}" --licenses >/dev/null) || true
+            if [ ! -d "${SDK_DIR_UNIX}/platforms/android-35" ] || [ ! -d "${SDK_DIR_UNIX}/build-tools/35.0.0" ]; then
+              "${SDKMANAGER}" --sdk_root="${SDK_DIR_WIN}" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+            fi
+          fi
 
       - name: Resolver versao da release
         shell: bash
@@ -102,6 +133,7 @@ jobs:
           fi
 
       - name: Compilar e testar Desktop no Windows
+        shell: bash
         run: ./gradlew :composeApp:desktopTest --no-daemon
 
       - name: Gerar instalador (.msi) e versao portavel (.zip) Windows
