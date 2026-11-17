@@ -56,7 +56,7 @@ git tag v1.1.0 && git push origin v1.1.0
 - **Suporte Multiplataforma Completo (4 Direções):**
   - Transferências **Desktop <-> Desktop**, **Desktop <-> Android** e **Android <-> Android**;
   - No **Desktop**, disponibiliza aplicativo gráfico Compose e um **Servidor Independente Headless/CLI** (`ServerMainKt`) totalmente desacoplado da UI;
-  - No **Android**, integra **Storage Access Framework (`OpenMultipleDocuments`)**, grava em **`Downloads/FileShare`** via `MediaStore.Downloads` e mantém conexões ativas em segundo plano com **`FsapForegroundService` (`dataSync`)** e botão de cancelamento na notificação.
+  - No **Android**, integra **Storage Access Framework (`OpenMultipleDocuments`)**, grava por padrão em **`Downloads/Kshare`** via `MediaStore.Downloads` (com escolha livre de pasta via SAF) e mantém conexões ativas em segundo plano com **`FsapForegroundService` (`dataSync`)** e botão de cancelamento na notificação.
 - **Segurança, Confirmação Explícita e Proteção na LAN:**
   - Aprovação explícita obrigatória pelo destinatário (timeout de `60 s`) com geração de `transferToken` efêmero por sessão (`X-FSAP-Transfer-Token`);
   - Sanitização estrita de nomes contra *Path Traversal* e nomes reservados do Windows (`FileNameSanitizer`);
