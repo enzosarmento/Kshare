@@ -49,6 +49,8 @@ class FileShareMainViewModelTest {
         override val externalLocalAlias: StateFlow<String> = externalAliasFlow
         val externalSaveDirFlow = MutableStateFlow(saveDirectoryLabel)
         override val externalSaveDirectoryLabel: StateFlow<String> = externalSaveDirFlow
+        val isCustomSaveDirFlow = MutableStateFlow(false)
+        override val isCustomSaveDirectory: StateFlow<Boolean> = isCustomSaveDirFlow
 
         var failNextStart: Boolean = false
         var resolvedPortOverride: Int? = null
@@ -90,9 +92,16 @@ class FileShareMainViewModelTest {
             }
             val next = pickedSaveDirectoryResult
             if (next != null) {
+                isCustomSaveDirFlow.value = true
                 externalSaveDirFlow.value = next
             }
             return next
+        }
+
+        override suspend fun resetSaveDirectory(): String {
+            isCustomSaveDirFlow.value = false
+            externalSaveDirFlow.value = saveDirectoryLabel
+            return saveDirectoryLabel
         }
 
         override suspend fun sendFiles(peer: DiscoveredPeer, sources: List<FileSource>): Result<String> {
@@ -373,6 +382,17 @@ class FileShareMainViewModelTest {
         runtime.externalSaveDirFlow.value = "/mnt/sd/Recebidos"
         runCurrent()
         assertEquals("/mnt/sd/Recebidos", vm.uiState.value.saveDirectoryLabel)
+        assertTrue(vm.uiState.value.hasCustomSaveDirectory)
+
+        // Restaurar padrao volta ao diretorio padrao e limpa flag hasCustomSaveDirectory
+        vm.resetSaveDirectoryInternal()
+        runCurrent()
+        assertEquals("/tmp/downloads", vm.uiState.value.saveDirectoryLabel)
+        assertFalse(vm.uiState.value.hasCustomSaveDirectory)
+        assertEquals(
+            "Pasta padrão restaurada: /tmp/downloads",
+            vm.uiState.value.statusBanner,
+        )
     }
 
     @Test

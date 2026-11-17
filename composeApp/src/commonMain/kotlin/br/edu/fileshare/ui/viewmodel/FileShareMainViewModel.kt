@@ -45,6 +45,8 @@ interface FileShareRuntimePort {
         get() = null
     val externalSaveDirectoryLabel: StateFlow<String>?
         get() = null
+    val isCustomSaveDirectory: StateFlow<Boolean>?
+        get() = null
 
     val tlsEnabled: StateFlow<Boolean>?
         get() = null
@@ -62,6 +64,7 @@ interface FileShareRuntimePort {
     suspend fun stopNode()
     suspend fun pickFilesToSend(): List<FileSource>
     suspend fun pickSaveDirectory(): String? = null
+    suspend fun resetSaveDirectory(): String? = null
     suspend fun sendFiles(peer: DiscoveredPeer, sources: List<FileSource>): Result<String>
     suspend fun refreshDiscovery(): Result<Unit> = Result.success(Unit)
 }
@@ -71,6 +74,7 @@ data class FileShareMainUiState(
     val localAlias: String = "",
     val boundHttpPort: Int = FsapConstants.DEFAULT_HTTP_PORT,
     val saveDirectoryLabel: String = "",
+    val hasCustomSaveDirectory: Boolean = false,
     val localAddresses: List<String> = emptyList(),
     val nodeState: LocalNodeState = LocalNodeState.STOPPED,
     val activeTab: MainTab = MainTab.SEND,
@@ -118,6 +122,7 @@ class FileShareMainViewModel(
             boundHttpPort = runtime.initialPort,
             saveDirectoryLabel = runtime.externalSaveDirectoryLabel?.value?.takeIf { it.isNotBlank() }
                 ?: runtime.saveDirectoryLabel,
+            hasCustomSaveDirectory = runtime.isCustomSaveDirectory?.value ?: false,
             localAddresses = runtime.localAddresses.value,
             nodeState = nodeFsm.currentState(),
             aliasDraft = runtime.initialAlias,
@@ -216,6 +221,14 @@ class FileShareMainViewModel(
                     if (label.isNotBlank()) {
                         _uiState.update { it.copy(saveDirectoryLabel = label) }
                     }
+                }
+            }
+        }
+
+        runtime.isCustomSaveDirectory?.let { customDirFlow ->
+            scope.launch {
+                customDirFlow.collectLatest { isCustom ->
+                    _uiState.update { it.copy(hasCustomSaveDirectory = isCustom) }
                 }
             }
         }
@@ -444,6 +457,7 @@ class FileShareMainViewModel(
                 _uiState.update {
                     it.copy(
                         saveDirectoryLabel = selectedLabel,
+                        hasCustomSaveDirectory = runtime.isCustomSaveDirectory?.value ?: true,
                         statusBanner = "Pasta de recebimento alterada para: $selectedLabel",
                     )
                 }
@@ -453,6 +467,34 @@ class FileShareMainViewModel(
         } catch (ex: Throwable) {
             _uiState.update {
                 it.copy(statusBanner = "Erro ao selecionar pasta de destino: ${ex.message ?: "falha de I/O"}")
+            }
+        } finally {
+            _uiState.update { it.copy(isBusy = false) }
+        }
+    }
+
+    fun resetSaveDirectory() {
+        scope.launch { resetSaveDirectoryInternal() }
+    }
+
+    internal suspend fun resetSaveDirectoryInternal() {
+        _uiState.update { it.copy(isBusy = true, statusBanner = null) }
+        try {
+            val defaultLabel = runtime.resetSaveDirectory()?.trim()
+            if (!defaultLabel.isNullOrBlank()) {
+                _uiState.update {
+                    it.copy(
+                        saveDirectoryLabel = defaultLabel,
+                        hasCustomSaveDirectory = runtime.isCustomSaveDirectory?.value ?: false,
+                        statusBanner = "Pasta padrão restaurada: $defaultLabel",
+                    )
+                }
+            }
+        } catch (ex: CancellationException) {
+            throw ex
+        } catch (ex: Throwable) {
+            _uiState.update {
+                it.copy(statusBanner = "Erro ao restaurar pasta padrão: ${ex.message ?: "falha de I/O"}")
             }
         } finally {
             _uiState.update { it.copy(isBusy = false) }

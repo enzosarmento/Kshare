@@ -723,6 +723,10 @@ class AndroidFileShareRuntimeTest {
                         "content://com.android.externalstorage.documents/tree/primary%3ADocuments%2FFileshareCustom",
                     )
                 },
+                directoryReset = {
+                    sink.updatePublisher(DirectoryDestinationPublisher(defaultDir))
+                    AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL
+                },
                 initialAddressesProvider = { listOf("127.0.0.1") },
                 ensureNotificationPermission = { true },
                 logger = logger,
@@ -733,11 +737,13 @@ class AndroidFileShareRuntimeTest {
             val mainVm = FileShareMainViewModel(runtime = runtime, scope = uiScope, logger = logger)
             try {
                 assertEquals(AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL, mainVm.uiState.value.saveDirectoryLabel)
+                assertFalse(mainVm.uiState.value.hasCustomSaveDirectory)
 
                 mainVm.pickSaveDirectoryInternal()
                 val expectedLabel = "Armazenamento Interno/Documents/FileshareCustom"
                 assertEquals(expectedLabel, mainVm.uiState.value.saveDirectoryLabel)
                 assertEquals(expectedLabel, controller.saveDirectoryLabel.value)
+                assertTrue(mainVm.uiState.value.hasCustomSaveDirectory)
 
                 val data = "novo destino saf".encodeToByteArray()
                 val sha = java.security.MessageDigest.getInstance("SHA-256")
@@ -749,6 +755,17 @@ class AndroidFileShareRuntimeTest {
 
                 assertTrue(File(customDir, "destino.txt").exists())
                 assertFalse(File(defaultDir, "destino.txt").exists())
+
+                mainVm.resetSaveDirectoryInternal()
+                assertEquals(AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL, mainVm.uiState.value.saveDirectoryLabel)
+                assertEquals(AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL, controller.saveDirectoryLabel.value)
+                assertFalse(mainVm.uiState.value.hasCustomSaveDirectory)
+
+                val sessionReset = sink.openPartSession("tx-reset", "f1", "padrao.txt", data.size.toLong())
+                sessionReset.writeChunk(data, 0, data.size)
+                sessionReset.commitPart(verifiedSha256 = sha, totalBytesWritten = data.size.toLong())
+
+                assertTrue(File(defaultDir, "padrao.txt").exists())
             } finally {
                 runtime.close()
                 uiScope.cancel()
