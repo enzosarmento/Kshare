@@ -16,6 +16,8 @@ class ServerCliParserTest {
         assertEquals(ServerCliConfig.DEFAULT_PORT, config.port)
         assertTrue(config.alias.isNotBlank())
         assertTrue(config.alias.length <= ServerCliConfig.MAX_ALIAS_LENGTH)
+        assertEquals("Kshare", config.downloadDir.fileName.toString())
+        assertEquals("Downloads", config.downloadDir.parent.fileName.toString())
         assertFalse(config.autoAcceptTest)
         assertFalse(config.showHelp)
     }
