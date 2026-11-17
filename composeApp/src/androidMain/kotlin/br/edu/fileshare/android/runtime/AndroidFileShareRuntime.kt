@@ -55,6 +55,7 @@ class AndroidFileShareRuntime(
     private val startServiceAndAwaitController: suspend (alias: String, port: Int) -> FsapForegroundNodeController,
     private val filePicker: suspend () -> List<FileSource>,
     private val directoryPicker: suspend () -> String? = { null },
+    private val directoryReset: suspend () -> String? = { null },
     private val initialAddressesProvider: () -> List<String> = { emptyList() },
     private val ensureNotificationPermission: suspend () -> Boolean = { true },
     val logger: FsapLogger,
@@ -115,6 +116,18 @@ class AndroidFileShareRuntime(
                 }
             }
         },
+        directoryReset = {
+            withContext(Dispatchers.IO) {
+                val appContext = context.applicationContext
+                AndroidNodeIdentityHelper.saveTreeUri(appContext, null)
+                val activeController = FsapServiceRegistry.activeController.value
+                if (activeController != null) {
+                    activeController.updateDestinationDirectory(appContext, null)
+                } else {
+                    AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL
+                }
+            }
+        },
         initialAddressesProvider = { AndroidNetworkInterfaceProvider().listLocalIpv4Addresses() },
         ensureNotificationPermission = { permissionRequester.ensureNotificationPermission() },
         logger = container.logger,
@@ -156,6 +169,12 @@ class AndroidFileShareRuntime(
         controllerFlow.value?.saveDirectoryLabel?.value ?: saveDirectoryLabel,
     )
     override val externalSaveDirectoryLabel: StateFlow<String> = _externalSaveDirectoryLabel.asStateFlow()
+
+    private val _isCustomSaveDirectory = MutableStateFlow(
+        controllerFlow.value?.hasCustomSaveDirectory?.value
+            ?: (saveDirectoryLabel != DEFAULT_SAVE_DIRECTORY_LABEL),
+    )
+    override val isCustomSaveDirectory: StateFlow<Boolean> = _isCustomSaveDirectory.asStateFlow()
 
     private val _tlsEnabled = MutableStateFlow(
         controllerFlow.value?.tlsEnabled?.value ?: false,
@@ -225,8 +244,17 @@ class AndroidFileShareRuntime(
     override suspend fun pickSaveDirectory(): String? {
         val selectedLabel = directoryPicker()?.trim()?.takeIf { it.isNotEmpty() } ?: return null
         _externalSaveDirectoryLabel.value = selectedLabel
-        controllerFlow.value?.updateSaveDirectoryLabel(selectedLabel)
+        _isCustomSaveDirectory.value = true
+        controllerFlow.value?.updateSaveDirectoryLabel(selectedLabel, isCustom = true)
         return selectedLabel
+    }
+
+    override suspend fun resetSaveDirectory(): String? {
+        val defaultLabel = directoryReset()?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        _externalSaveDirectoryLabel.value = defaultLabel
+        _isCustomSaveDirectory.value = false
+        controllerFlow.value?.updateSaveDirectoryLabel(defaultLabel, isCustom = false)
+        return defaultLabel
     }
 
     override suspend fun sendFiles(peer: DiscoveredPeer, sources: List<FileSource>): Result<String> {
@@ -360,6 +388,11 @@ class AndroidFileShareRuntime(
                             if (label.isNotBlank()) {
                                 _externalSaveDirectoryLabel.value = label
                             }
+                        }
+                    }
+                    launch {
+                        controller.hasCustomSaveDirectory.collect { isCustom ->
+                            _isCustomSaveDirectory.value = isCustom
                         }
                     }
                     launch {

@@ -325,6 +325,9 @@ class FsapForegroundNodeController(
     parentScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val ownsScope: Boolean = true,
     initialSaveDirectoryLabel: String = AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL,
+    initialHasCustomSaveDirectory: Boolean =
+        initialSaveDirectoryLabel.isNotBlank() &&
+            initialSaveDirectoryLabel != AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL,
 ) {
     private val controllerScope = CoroutineScope(
         parentScope.coroutineContext + SupervisorJob(parentScope.coroutineContext[Job]),
@@ -369,6 +372,9 @@ class FsapForegroundNodeController(
         initialSaveDirectoryLabel.ifBlank { AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL },
     )
     val saveDirectoryLabel: StateFlow<String> = _saveDirectoryLabel.asStateFlow()
+
+    private val _hasCustomSaveDirectory = MutableStateFlow(initialHasCustomSaveDirectory)
+    val hasCustomSaveDirectory: StateFlow<Boolean> = _hasCustomSaveDirectory.asStateFlow()
 
     private val tokenManager = TransferTokenManager(
         clock = clock,
@@ -416,8 +422,12 @@ class FsapForegroundNodeController(
         _receivedFiles.update { current -> listOf(descriptor) + current }
     }
 
-    fun updateSaveDirectoryLabel(label: String) {
+    fun updateSaveDirectoryLabel(
+        label: String,
+        isCustom: Boolean = label.isNotBlank() && label != AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL,
+    ) {
         _saveDirectoryLabel.value = label.ifBlank { AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL }
+        _hasCustomSaveDirectory.value = isCustom
     }
 
     fun updateDestinationDirectory(appContext: Context, treeUri: Uri?): String {
@@ -425,6 +435,7 @@ class FsapForegroundNodeController(
         androidSink?.updateSafTreeDestination(appContext, treeUri)
         val formattedLabel = AndroidNodeIdentityHelper.formatSaveDirectoryLabel(treeUri?.toString())
         _saveDirectoryLabel.value = formattedLabel
+        _hasCustomSaveDirectory.value = treeUri != null
         return formattedLabel
     }
 
