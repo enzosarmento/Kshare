@@ -210,7 +210,7 @@ object AndroidNodeIdentityHelper {
     private const val KEY_DEVICE_ID = "local_device_id"
     private const val KEY_DEVICE_ALIAS = "local_device_alias"
     private const val KEY_SAVE_TREE_URI = "local_save_tree_uri"
-    const val DEFAULT_SAVE_DIRECTORY_LABEL: String = "Downloads/FileShare (MediaStore)"
+    const val DEFAULT_SAVE_DIRECTORY_LABEL: String = "Downloads/Kshare (MediaStore)"
 
     fun getOrCreateDeviceId(
         context: Context,
@@ -567,7 +567,7 @@ class FsapForegroundNodeController(
                 nodeFsm.transition(LocalNodeEvent.EVT_TRANSPORT_FATAL_ERROR)
             }
             val failedState = FsapNotificationState(
-                title = "FileShare indisponivel",
+                title = "FileShare indisponível",
                 text = "Falha ao iniciar servidor FSAP: ${err.message ?: "erro desconhecido"}",
                 ongoing = false,
             )
@@ -768,7 +768,7 @@ class FsapForegroundNodeController(
         } else {
             FsapNotificationState(
                 title = "FileShare ativo (${_localAlias.value})",
-                text = "Visivel na rede local — porta ${_boundPort.value}",
+                text = "Visível na rede local — porta ${_boundPort.value}",
                 progressPercent = null,
                 ongoing = true,
                 hasActiveTransfers = false,
@@ -973,7 +973,7 @@ class FsapForegroundService : Service(), FsapServiceHost {
             enterForeground(
                 FsapNotificationState(
                     title = "FileShare",
-                    text = "Preparando servico FSAP na rede local...",
+                    text = "Preparando serviço FSAP na rede local...",
                     ongoing = true,
                 ),
             )

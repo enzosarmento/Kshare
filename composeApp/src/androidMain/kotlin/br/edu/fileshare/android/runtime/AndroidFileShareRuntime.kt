@@ -231,7 +231,7 @@ class AndroidFileShareRuntime(
 
     override suspend fun sendFiles(peer: DiscoveredPeer, sources: List<FileSource>): Result<String> {
         val controller = controllerFlow.value
-            ?: return Result.failure(IllegalStateException("Inicie o servico FileShare antes de enviar arquivos."))
+            ?: return Result.failure(IllegalStateException("Inicie o serviço FileShare antes de enviar arquivos."))
         return controller.sendFiles(peer = peer, sources = sources)
     }
 
@@ -253,7 +253,7 @@ class AndroidFileShareRuntime(
         val controller = controllerFlow.value
             ?: return ManualConnectResult.Failed(
                 errorCode = FsapErrorCode.CONNECTION_LOST,
-                message = "Inicie o servico FileShare antes de conectar manualmente.",
+                message = "Inicie o serviço FileShare antes de conectar manualmente.",
             )
         return controller.connectByManualIp(
             ipAddress = ipAddress,
