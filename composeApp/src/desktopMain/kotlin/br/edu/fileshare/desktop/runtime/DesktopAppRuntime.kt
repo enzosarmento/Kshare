@@ -59,11 +59,14 @@ class DesktopAppRuntime(
     override val initialAlias: String = defaultDesktopAlias(),
     override val initialPort: Int = FsapConstants.DEFAULT_HTTP_PORT,
     val downloadDirectory: Path = defaultDownloadsDir(),
+    private val defaultDirectory: Path = defaultDownloadsDir(),
 ) : FileShareRuntimePort {
 
     val logger: FsapLogger = container.logger
     val clock: Clock = container.clock
     val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private val normalizedDefaultDirectory: Path = defaultDirectory.toAbsolutePath().normalize()
 
     @Volatile
     var currentDownloadDirectory: Path = downloadDirectory.toAbsolutePath().normalize()
@@ -71,6 +74,9 @@ class DesktopAppRuntime(
 
     private val _saveDirectoryLabel = MutableStateFlow(currentDownloadDirectory.toString())
     override val externalSaveDirectoryLabel: StateFlow<String> = _saveDirectoryLabel.asStateFlow()
+
+    private val _isCustomSaveDirectory = MutableStateFlow(currentDownloadDirectory != normalizedDefaultDirectory)
+    override val isCustomSaveDirectory: StateFlow<Boolean> = _isCustomSaveDirectory.asStateFlow()
 
     override val localDeviceId: String = PlatformUuidGenerator.nextUuidV4()
     override val saveDirectoryLabel: String
@@ -229,11 +235,16 @@ class DesktopAppRuntime(
         }
     }
 
+    override suspend fun resetSaveDirectory(): String = withContext(Dispatchers.IO) {
+        updateSaveDirectory(normalizedDefaultDirectory)
+    }
+
     fun updateSaveDirectory(newDirectory: Path): String {
         val resolved = fileSink.setTargetDirectory(newDirectory)
         currentDownloadDirectory = resolved
         val label = resolved.toString()
         _saveDirectoryLabel.value = label
+        _isCustomSaveDirectory.value = resolved != normalizedDefaultDirectory
         loadExistingReceivedFiles(resolved)
         return label
     }

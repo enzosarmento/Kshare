@@ -28,6 +28,7 @@ import kotlinx.coroutines.withTimeout
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -41,6 +42,35 @@ class DesktopEnvironmentTest {
         val defaultDir = DesktopAppRuntime.defaultDownloadsDir()
         assertEquals("Kshare", defaultDir.fileName.toString())
         assertEquals("Downloads", defaultDir.parent.fileName.toString())
+    }
+
+    @Test
+    fun `DesktopAppRuntime alterna entre pasta personalizada e pasta padrao`() = runBlocking {
+        val tempRoot = Files.createTempDirectory("kshare-desktop-dir-reset-")
+        val defaultDir = Files.createDirectories(tempRoot.resolve("Downloads").resolve("Kshare"))
+        val customDir = Files.createDirectories(tempRoot.resolve("Custom"))
+        val runtime = DesktopAppRuntime(
+            initialAlias = "Desktop-Pasta",
+            initialPort = 0,
+            downloadDirectory = defaultDir,
+            defaultDirectory = defaultDir,
+        )
+        try {
+            assertFalse(runtime.isCustomSaveDirectory.value)
+            assertEquals(defaultDir.toString(), runtime.saveDirectoryLabel)
+
+            runtime.updateSaveDirectory(customDir)
+            assertTrue(runtime.isCustomSaveDirectory.value)
+            assertEquals(customDir.toString(), runtime.saveDirectoryLabel)
+
+            val restored = runtime.resetSaveDirectory()
+            assertEquals(defaultDir.toString(), restored)
+            assertFalse(runtime.isCustomSaveDirectory.value)
+            assertEquals(defaultDir.toString(), runtime.saveDirectoryLabel)
+        } finally {
+            runtime.close()
+            tempRoot.toFile().deleteRecursively()
+        }
     }
 
     @Test
