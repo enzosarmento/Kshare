@@ -67,7 +67,7 @@ fun TransferProgressScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = "Transferencias",
+                    text = "Transferências",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -95,7 +95,7 @@ fun TransferProgressScreen(
 
             if (state.completedCount > 0) {
                 TextButton(onClick = viewModel::clearCompleted) {
-                    Text("Limpar concluidas (${state.completedCount})")
+                    Text("Limpar concluídas (${state.completedCount})")
                 }
             }
         }
@@ -109,8 +109,8 @@ fun TransferProgressScreen(
             ) {
                 EmptyStateCard(
                     icon = KShareIcons.Transfers,
-                    title = "Nenhuma transferencia registrada",
-                    subtitle = "Envios e recebimentos ativos ou concluidos nesta sessao aparecerao aqui em tempo real.",
+                    title = "Nenhuma transferência registrada",
+                    subtitle = "Envios e recebimentos ativos ou concluídos nesta sessão aparecerão aqui em tempo real.",
                 )
             }
         } else {
@@ -291,7 +291,7 @@ private fun TransferProgressCard(
                                 .padding(horizontal = 10.dp, vertical = 6.dp),
                         ) {
                             Text(
-                                text = "Interromper transferencia em andamento?",
+                                text = "Interromper transferência em andamento?",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                                 modifier = Modifier.align(Alignment.CenterVertically),

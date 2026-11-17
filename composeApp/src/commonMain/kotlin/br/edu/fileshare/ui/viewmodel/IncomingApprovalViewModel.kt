@@ -138,7 +138,7 @@ class IncomingApprovalViewModel(
                 transferId = active.transferId,
                 decision = TransferApprovalDecision.Rejected(
                     reasonCode = RejectReasonCode.USER_DECLINED,
-                    reasonMessage = "Usuario recusou a transferencia.",
+                    reasonMessage = "Usuário recusou a transferência.",
                 ),
             )
             refreshPromptState()

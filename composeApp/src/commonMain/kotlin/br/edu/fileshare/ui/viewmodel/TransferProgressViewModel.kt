@@ -170,11 +170,11 @@ class TransferProgressViewModel(
 
         fun describeState(state: TransferState): Pair<String, TransferStatusTone> = when (state) {
             TransferState.CREATED -> "Iniciando" to TransferStatusTone.NEUTRAL
-            TransferState.PENDING_APPROVAL -> "Aguardando aprovacao" to TransferStatusTone.WARNING
+            TransferState.PENDING_APPROVAL -> "Aguardando aprovação" to TransferStatusTone.WARNING
             TransferState.ACCEPTED -> "Aceita" to TransferStatusTone.ACTIVE
             TransferState.TRANSFERRING -> "Transferindo" to TransferStatusTone.ACTIVE
             TransferState.VERIFYING -> "Verificando SHA-256" to TransferStatusTone.ACTIVE
-            TransferState.COMPLETED -> "Concluida" to TransferStatusTone.SUCCESS
+            TransferState.COMPLETED -> "Concluída" to TransferStatusTone.SUCCESS
             TransferState.REJECTED -> "Recusada" to TransferStatusTone.WARNING
             TransferState.CANCELLED -> "Cancelada" to TransferStatusTone.NEUTRAL
             TransferState.FAILED -> "Falhou" to TransferStatusTone.ERROR
