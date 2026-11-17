@@ -56,7 +56,7 @@ interface AndroidDestinationPublisher {
 @RequiresApi(Build.VERSION_CODES.Q)
 class MediaStoreDownloadsPublisher(
     context: Context,
-    private val relativeDirectory: String = "${Environment.DIRECTORY_DOWNLOADS}/FileShare",
+    private val relativeDirectory: String = "${Environment.DIRECTORY_DOWNLOADS}/Kshare",
 ) : AndroidDestinationPublisher {
 
     private val resolver = context.applicationContext.contentResolver
@@ -642,10 +642,10 @@ class AndroidFileSink(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             }.getOrNull()
             return if (publicDownloads != null) {
-                File(publicDownloads, "FileShare")
+                File(publicDownloads, "Kshare")
             } else {
                 val appExternal = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
-                File(appExternal, "FileShare")
+                File(appExternal, "Kshare")
             }
         }
 

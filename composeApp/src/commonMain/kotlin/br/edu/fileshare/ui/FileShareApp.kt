@@ -503,7 +503,7 @@ private fun QuickVisibilityButton(
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
             modifier = Modifier.heightIn(min = 36.dp),
         ) {
-            Text("Ficar visivel", style = MaterialTheme.typography.labelMedium)
+            Text("Ficar visível", style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -515,7 +515,7 @@ private fun NodeStateBadge(
 ) {
     when (nodeState) {
         LocalNodeState.AVAILABLE -> SemanticBadge(
-            text = "Visivel na rede",
+            text = "Visível na rede",
             containerColor = MaterialTheme.colorScheme.tertiaryContainer,
             contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
             dotColor = MaterialTheme.colorScheme.tertiary,
@@ -555,7 +555,7 @@ private fun NodeStateBadge(
         LocalNodeState.SHUTTING_DOWN,
         LocalNodeState.STOPPED,
         -> SemanticBadge(
-            text = "Modo invisivel",
+            text = "Modo invisível",
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -701,7 +701,7 @@ private fun SendTabContent(
                         EmptyStateCard(
                             icon = KShareIcons.Radar,
                             title = "Buscando dispositivos na rede",
-                            subtitle = "Certifique-se de que ambos os aparelhos estao no mesmo Wi-Fi ou use \"Conectar por IP\".",
+                            subtitle = "Certifique-se de que ambos os aparelhos estão no mesmo Wi-Fi ou use \"Conectar por IP\".",
                         )
                     }
                 } else {
@@ -854,7 +854,7 @@ private fun FilePickerPromptCard(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Escolha documentos, imagens, videos ou arquivos locais",
+                text = "Escolha documentos, imagens, vídeos ou arquivos locais",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -1044,7 +1044,7 @@ private fun SendActionFooter(
                 val ctaLabel = when {
                     isBusy -> "Preparando envio..."
                     selectedFilesCount == 0 -> "Selecione arquivos para enviar"
-                    selectedPeerAlias == null -> "Escolha um destinatario"
+                    selectedPeerAlias == null -> "Escolha um destinatário"
                     else -> "Enviar para $selectedPeerAlias"
                 }
                 Text(
@@ -1160,7 +1160,7 @@ private fun PeerSelectionCard(
 private fun PeerConnectionBadge(connectionState: PeerConnectionState) {
     when (connectionState) {
         PeerConnectionState.DISCOVERED -> SemanticBadge(
-            text = "Disponivel",
+            text = "Disponível",
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         )
@@ -1176,7 +1176,7 @@ private fun PeerConnectionBadge(connectionState: PeerConnectionState) {
             dotColor = MaterialTheme.colorScheme.tertiary,
         )
         PeerConnectionState.STALE -> SemanticBadge(
-            text = "Instavel",
+            text = "Instável",
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
         )
@@ -1252,7 +1252,7 @@ private fun ReceivedTabContent(
                 EmptyStateCard(
                     icon = KShareIcons.Folder,
                     title = "Nenhum arquivo recebido ainda",
-                    subtitle = "Os arquivos aprovados e verificados via SHA-256 sao gravados automaticamente em $saveDirectoryLabel.",
+                    subtitle = "Os arquivos aprovados e verificados via SHA-256 são gravados automaticamente em $saveDirectoryLabel.",
                 )
             }
         } else {
@@ -1266,7 +1266,7 @@ private fun ReceivedTabContent(
                         fileName = file.finalName,
                         subtitle = ByteFormatter.formatBytes(file.sizeBytes),
                         monospaceSubtitle = if (isLocalOnly) {
-                            "Armazenado no diretorio de recebidos"
+                            "Armazenado no diretório de recebidos"
                         } else {
                             "SHA-256: ${file.sha256.take(16)}..."
                         },
@@ -1332,7 +1332,7 @@ private fun SettingsTabContent(
                     OutlinedTextField(
                         value = state.aliasDraft,
                         onValueChange = { onDraftChanged(it, state.portDraft, state.tlsDraftEnabled) },
-                        label = { Text("Nome visivel (Alias)") },
+                        label = { Text("Nome visível (Alias)") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                         modifier = Modifier.fillMaxWidth(),
@@ -1371,7 +1371,7 @@ private fun SettingsTabContent(
                                     fontWeight = FontWeight.Medium,
                                 )
                                 Text(
-                                    text = "Criptografa sinalizacao e transferencia via TLSv1.3/TLSv1.2 com pinning SHA-256. Quando desativado, usa HTTP claro.",
+                                    text = "Criptografa sinalização e transferência via TLSv1.3/TLSv1.2 com pinning SHA-256. Quando desativado, usa HTTP claro.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -1454,7 +1454,7 @@ private fun SettingsTabContent(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        text = "Escolha a pasta onde os arquivos recebidos e validados via SHA-256 serao gravados.",
+                        text = "Escolha a pasta onde os arquivos recebidos e validados via SHA-256 serão gravados.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1491,14 +1491,14 @@ private fun SettingsTabContent(
                     modifier = Modifier.padding(16.dp),
                 ) {
                     Text(
-                        text = "Diagnostico do No FSAP/1.0",
+                        text = "Diagnóstico do Nó FSAP/1.0",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
 
                     DiagnosticRow(label = "UUID persistente", value = state.localDeviceId)
                     DiagnosticRow(
-                        label = "Enderecos IPv4",
+                        label = "Endereços IPv4",
                         value = if (state.localAddresses.isEmpty()) "127.0.0.1" else state.localAddresses.joinToString(", "),
                     )
                     DiagnosticRow(label = "Pasta de recebimento", value = state.saveDirectoryLabel)
@@ -1562,7 +1562,7 @@ private fun DiagnosticRow(
 private fun DefaultTransfersPlaceholder() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(
-            text = "Painel de transferencias em carregamento.",
+            text = "Painel de transferências em carregamento.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

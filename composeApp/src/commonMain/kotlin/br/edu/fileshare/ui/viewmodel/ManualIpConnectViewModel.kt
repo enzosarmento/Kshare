@@ -106,7 +106,7 @@ class ManualIpConnectViewModel(
         val portValidationError = if (
             parsedPort == null || parsedPort !in FsapConstants.MIN_VALID_PORT..FsapConstants.MAX_VALID_PORT
         ) {
-            "Porta invalida. Informe valor entre ${FsapConstants.MIN_VALID_PORT} e ${FsapConstants.MAX_VALID_PORT}."
+            "Porta inválida. Informe valor entre ${FsapConstants.MIN_VALID_PORT} e ${FsapConstants.MAX_VALID_PORT}."
         } else {
             null
         }
@@ -167,16 +167,16 @@ class ManualIpConnectViewModel(
         fun validateHostOrIp(input: String): String? {
             val trimmed = input.trim()
             if (trimmed.isEmpty()) {
-                return "Informe o endereco IPv4 ou hostname do dispositivo."
+                return "Informe o endereço IPv4 ou hostname do dispositivo."
             }
             if (trimmed.any { it.isWhitespace() || it == '/' || it == ':' }) {
-                return "Endereco IP ou hostname contem caracteres invalidos."
+                return "Endereço IP ou hostname contém caracteres inválidos."
             }
             val segments = trimmed.split('.')
             val looksNumericIpv4 = segments.all { seg -> seg.isNotEmpty() && seg.all { it.isDigit() } }
             if (looksNumericIpv4) {
                 if (segments.size != 4) {
-                    return "Endereco IPv4 incompleto. Use o formato A.B.C.D."
+                    return "Endereço IPv4 incompleto. Use o formato A.B.C.D."
                 }
                 val invalidOctet = segments.any { seg ->
                     val n = seg.toIntOrNull()
@@ -189,10 +189,10 @@ class ManualIpConnectViewModel(
             }
 
             if (trimmed.startsWith('.') || trimmed.endsWith('.') || trimmed.contains("..")) {
-                return "Endereco de rede malformado."
+                return "Endereço de rede malformado."
             }
             if (segments.any { !HOSTNAME_LABEL_REGEX.matches(it) }) {
-                return "Hostname ou endereco IP invalido."
+                return "Hostname ou endereço IP inválido."
             }
             return null
         }

@@ -31,7 +31,7 @@ data class ServerCliConfig(
 
         fun defaultDownloadDir(): Path {
             val userHome = System.getProperty("user.home").orEmpty().ifBlank { "." }
-            return Path.of(userHome, "Downloads", "FileShare")
+            return Path.of(userHome, "Downloads", "Kshare")
         }
     }
 }

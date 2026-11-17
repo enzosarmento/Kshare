@@ -225,7 +225,12 @@ class FileShareMainViewModelTest {
 
         assertTrue(ByteFormatter.isErrorMessage("Falha ao iniciar servico de rede"))
         assertTrue(ByteFormatter.isErrorMessage("Erro ao selecionar arquivos"))
+        assertTrue(ByteFormatter.isErrorMessage("Porta inválida."))
+        assertTrue(ByteFormatter.isErrorMessage("Serviço indisponível"))
+        assertTrue(ByteFormatter.isErrorMessage("Não foi possível conectar"))
         assertFalse(ByteFormatter.isErrorMessage("Envio iniciado para Pixel-9."))
+        assertEquals("Transferências", MainTab.TRANSFERS.title)
+        assertEquals("Configurações", MainTab.SETTINGS.title)
     }
 
     @Test
@@ -300,7 +305,7 @@ class FileShareMainViewModelTest {
         assertEquals(54001, vm.uiState.value.boundHttpPort)
         assertEquals("54001", vm.uiState.value.portDraft)
         assertEquals(
-            "Configuracoes aplicadas (HTTP). Porta 54000 em uso; alternado automaticamente para 54001.",
+            "Configurações aplicadas (HTTP). Porta 54000 em uso; alternado automaticamente para 54001.",
             vm.uiState.value.statusBanner,
         )
     }

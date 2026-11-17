@@ -99,7 +99,7 @@ class AndroidNotificationPermissionRequester(
 object FsapServiceNotificationFactory {
 
     const val SERVICE_CHANNEL_ID: String = "fileshare_fsap_service"
-    const val SERVICE_CHANNEL_NAME: String = "Servico FileShare (FSAP)"
+    const val SERVICE_CHANNEL_NAME: String = "Serviço FileShare (FSAP)"
     const val SERVICE_NOTIFICATION_ID: Int = 53317
 
     fun ensureNotificationChannel(context: Context) {
@@ -112,7 +112,7 @@ object FsapServiceNotificationFactory {
             SERVICE_CHANNEL_NAME,
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "Mantem o servidor FSAP e descoberta UDP ativos durante recepcao e transferencias."
+            description = "Mantém o servidor FSAP e descoberta UDP ativos durante recepção e transferências."
             setShowBadge(false)
         }
         manager.createNotificationChannel(channel)
@@ -152,7 +152,7 @@ object FsapServiceNotificationFactory {
             .addAction(
                 Notification.Action.Builder(
                     null,
-                    "Parar servico",
+                    "Parar serviço",
                     stopPendingIntent,
                 ).build(),
             )

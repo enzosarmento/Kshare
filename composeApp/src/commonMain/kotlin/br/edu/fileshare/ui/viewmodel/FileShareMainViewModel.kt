@@ -22,8 +22,8 @@ import kotlinx.coroutines.sync.withLock
 enum class MainTab(val title: String) {
     SEND("Enviar"),
     RECEIVED("Recebidos"),
-    TRANSFERS("Transferencias"),
-    SETTINGS("Configuracoes"),
+    TRANSFERS("Transferências"),
+    SETTINGS("Configurações"),
 }
 
 /**
@@ -256,7 +256,7 @@ class FileShareMainViewModel(
                     _uiState.update {
                         it.copy(
                             nodeState = nodeFsm.currentState(),
-                            statusBanner = "Servico FSAP encerrado em segundo plano.",
+                            statusBanner = "Serviço FSAP encerrado em segundo plano.",
                         )
                     }
                 }
@@ -376,7 +376,7 @@ class FileShareMainViewModel(
                 _uiState.update {
                     it.copy(
                         nodeState = nodeFsm.currentState(),
-                        statusBanner = "Falha ao iniciar servico de rede: ${error.message ?: "erro desconhecido"}",
+                        statusBanner = "Falha ao iniciar serviço de rede: ${error.message ?: "erro desconhecido"}",
                     )
                 }
             },
@@ -491,7 +491,7 @@ class FileShareMainViewModel(
         var snapshot = _uiState.value
         val targetPeer = snapshot.selectedPeer
         if (targetPeer == null) {
-            _uiState.update { it.copy(statusBanner = "Selecione ou conecte um dispositivo destinatario.") }
+            _uiState.update { it.copy(statusBanner = "Selecione ou conecte um dispositivo destinatário.") }
             return
         }
         if (snapshot.selectedFiles.isEmpty()) {
@@ -605,9 +605,9 @@ class FileShareMainViewModel(
             val modeLabel = if (nextTlsEnabled) "HTTPS/TLS" else "HTTP"
             val actualPort = _uiState.value.boundHttpPort
             val message = if (actualPort != parsedPort) {
-                "Configuracoes aplicadas ($modeLabel). Porta $parsedPort em uso; alternado automaticamente para $actualPort."
+                "Configurações aplicadas ($modeLabel). Porta $parsedPort em uso; alternado automaticamente para $actualPort."
             } else {
-                "Configuracoes aplicadas e servidor reiniciado ($modeLabel)."
+                "Configurações aplicadas e servidor reiniciado ($modeLabel)."
             }
             _uiState.update { it.copy(statusBanner = message) }
         }

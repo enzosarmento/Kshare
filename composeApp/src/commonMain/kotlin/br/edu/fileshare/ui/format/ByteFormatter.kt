@@ -71,10 +71,14 @@ object ByteFormatter {
             lower.contains("erro") ||
             lower.contains("invalido") ||
             lower.contains("invalida") ||
+            lower.contains("inválid") ||
             lower.contains("selecione") ||
             lower.contains("recusad") ||
             lower.contains("timeout") ||
-            lower.contains("indisponivel")
+            lower.contains("indisponivel") ||
+            lower.contains("indisponível") ||
+            lower.contains("não foi possível") ||
+            lower.contains("não ")
     }
 
     private fun formatOneDecimal(value: Double): String {

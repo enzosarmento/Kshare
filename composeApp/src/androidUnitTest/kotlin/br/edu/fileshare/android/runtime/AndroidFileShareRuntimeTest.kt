@@ -654,6 +654,10 @@ class AndroidFileShareRuntimeTest {
     fun formatSaveDirectoryLabelAndPickSaveDirectorySwitchDestinationPublisher() =
         runBlocking {
             assertEquals(
+                "Downloads/Kshare (MediaStore)",
+                AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL,
+            )
+            assertEquals(
                 AndroidNodeIdentityHelper.DEFAULT_SAVE_DIRECTORY_LABEL,
                 AndroidNodeIdentityHelper.formatSaveDirectoryLabel(null),
             )

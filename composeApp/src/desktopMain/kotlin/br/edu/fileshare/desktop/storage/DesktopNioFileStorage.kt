@@ -114,7 +114,7 @@ class DesktopNioFileSink(
         val normalized = newDirectory.toAbsolutePath().normalize()
         ensureDirectoriesExist(normalized)
         if (!Files.isWritable(normalized)) {
-            throw IOException("Diretorio selecionado sem permissao de escrita: $normalized")
+            throw IOException("Diretório selecionado sem permissão de escrita: $normalized")
         }
         val staging = normalized.resolve(STAGING_DIR_NAME).normalize()
         knownStagingDirs.add(staging)

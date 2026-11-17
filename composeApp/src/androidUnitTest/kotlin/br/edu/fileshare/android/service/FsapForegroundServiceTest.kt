@@ -496,7 +496,7 @@ class FsapForegroundServiceTest {
             assertFalse(wakeLockHandle.isHeld)
             assertFalse(multicastLockHandle.isHeld)
             assertTrue(
-                host.notificationUpdates.any { it.title == "FileShare indisponivel" },
+                host.notificationUpdates.any { it.title == "FileShare indisponível" },
                 "Falha de bind deve sinalizar estado na notificacao.",
             )
 

@@ -370,7 +370,7 @@ class DesktopAppRuntime(
 
         fun defaultDownloadsDir(): Path {
             val home = Path.of(System.getProperty("user.home", "."))
-            return home.resolve("Downloads").resolve("FileShare").toAbsolutePath().normalize()
+            return home.resolve("Downloads").resolve("Kshare").toAbsolutePath().normalize()
         }
 
         fun enumerateLocalIpv4Addresses(): List<String> = runCatching {

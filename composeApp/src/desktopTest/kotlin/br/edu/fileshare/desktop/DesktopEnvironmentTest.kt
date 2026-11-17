@@ -38,6 +38,9 @@ class DesktopEnvironmentTest {
     @Test
     fun verifyDesktopSourceSetConfiguration() {
         assertTrue(ProjectInfo.PROTOCOL_VERSION.isNotBlank())
+        val defaultDir = DesktopAppRuntime.defaultDownloadsDir()
+        assertEquals("Kshare", defaultDir.fileName.toString())
+        assertEquals("Downloads", defaultDir.parent.fileName.toString())
     }
 
     @Test

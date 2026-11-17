@@ -182,7 +182,7 @@ class ManualPeerConnector(
                     )
                     return ManualConnectResult.Failed(
                         errorCode = FsapErrorCode.UNAUTHORIZED_TRANSFER,
-                        message = "Falha de verificacao TLS/fingerprint ao contatar $cleanHost:$port: ${ex.message}",
+                        message = "Falha de verificação TLS/fingerprint ao contatar $cleanHost:$port: ${ex.message}",
                         cause = ex,
                     )
                 }
@@ -194,7 +194,7 @@ class ManualPeerConnector(
                 )
                 return ManualConnectResult.Failed(
                     errorCode = FsapErrorCode.DEVICE_NOT_FOUND,
-                    message = "Nao foi possivel conectar ao dispositivo em $cleanHost:$port.",
+                    message = "Não foi possível conectar ao dispositivo em $cleanHost:$port.",
                     cause = ex,
                 )
             }
@@ -226,7 +226,7 @@ class ManualPeerConnector(
         } catch (ex: SerializationException) {
             return ManualConnectResult.Failed(
                 errorCode = FsapErrorCode.DEVICE_NOT_FOUND,
-                message = "O servico em $cleanHost:$port nao retornou um envelope JSON FSAP valido.",
+                message = "O serviço em $cleanHost:$port não retornou um envelope JSON FSAP válido.",
                 cause = ex,
             )
         }
@@ -234,7 +234,7 @@ class ManualPeerConnector(
         if (rawEnvelope.protocol != FsapConstants.PROTOCOL_NAME) {
             return ManualConnectResult.Failed(
                 errorCode = FsapErrorCode.DEVICE_NOT_FOUND,
-                message = "Resposta de $cleanHost:$port nao pertence ao protocolo FSAP.",
+                message = "Resposta de $cleanHost:$port não pertence ao protocolo FSAP.",
             )
         }
 
@@ -251,7 +251,7 @@ class ManualPeerConnector(
         } catch (ex: SerializationException) {
             return ManualConnectResult.Failed(
                 errorCode = FsapErrorCode.MALFORMED_MESSAGE,
-                message = "Payload IDENTIFY invalido recebido de $cleanHost:$port.",
+                message = "Payload IDENTIFY inválido recebido de $cleanHost:$port.",
                 cause = ex,
             )
         }

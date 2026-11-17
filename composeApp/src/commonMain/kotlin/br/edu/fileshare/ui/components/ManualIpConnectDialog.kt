@@ -99,7 +99,7 @@ fun ManualIpConnectDialog(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    text = "Informe o endereco IPv4 e a porta HTTP/TCP do dispositivo FSAP na mesma rede local.",
+                    text = "Informe o endereço IPv4 e a porta HTTP/TCP do dispositivo FSAP na mesma rede local.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -107,7 +107,7 @@ fun ManualIpConnectDialog(
                 OutlinedTextField(
                     value = state.ipInput,
                     onValueChange = onIpChange,
-                    label = { Text("Endereco IP ou Host") },
+                    label = { Text("Endereço IP ou Host") },
                     placeholder = { Text("192.168.1.50") },
                     isError = state.ipError != null,
                     supportingText = state.ipError?.let { err -> { Text(err) } },
