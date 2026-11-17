@@ -216,6 +216,8 @@ fun FileShareApp(
                                 saveDirectoryLabel = state.saveDirectoryLabel,
                                 files = state.receivedFiles,
                                 onPickSaveDirectory = viewModel::pickSaveDirectory,
+                                hasCustomSaveDirectory = state.hasCustomSaveDirectory,
+                                onResetSaveDirectory = viewModel::resetSaveDirectory,
                                 isBusy = state.isBusy,
                             )
 
@@ -228,6 +230,7 @@ fun FileShareApp(
                                 onStopServer = viewModel::stopNode,
                                 onStartServer = viewModel::startNode,
                                 onPickSaveDirectory = viewModel::pickSaveDirectory,
+                                onResetSaveDirectory = viewModel::resetSaveDirectory,
                             )
                         }
                     }
@@ -1194,6 +1197,8 @@ private fun ReceivedTabContent(
     saveDirectoryLabel: String,
     files: List<StoredFileDescriptor>,
     onPickSaveDirectory: () -> Unit = {},
+    hasCustomSaveDirectory: Boolean = false,
+    onResetSaveDirectory: () -> Unit = {},
     isBusy: Boolean = false,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -1216,9 +1221,9 @@ private fun ReceivedTabContent(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 OutlinedButton(
                     onClick = onPickSaveDirectory,
@@ -1233,11 +1238,21 @@ private fun ReceivedTabContent(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Alterar pasta")
                 }
+                if (hasCustomSaveDirectory) {
+                    TextButton(
+                        onClick = onResetSaveDirectory,
+                        enabled = !isBusy,
+                        modifier = Modifier.heightIn(min = 40.dp),
+                    ) {
+                        Text("Restaurar padrão")
+                    }
+                }
                 SemanticBadge(
                     text = "${files.size} arquivo(s)",
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     monospace = true,
+                    modifier = Modifier.align(Alignment.CenterVertically),
                 )
             }
         }
@@ -1302,6 +1317,7 @@ private fun SettingsTabContent(
     onStopServer: () -> Unit,
     onStartServer: () -> Unit,
     onPickSaveDirectory: () -> Unit = {},
+    onResetSaveDirectory: () -> Unit = {},
 ) {
     Box(
         contentAlignment = Alignment.TopCenter,
@@ -1475,6 +1491,15 @@ private fun SettingsTabContent(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Escolher pasta")
+                        }
+                        if (state.hasCustomSaveDirectory) {
+                            TextButton(
+                                onClick = onResetSaveDirectory,
+                                enabled = !state.isBusy,
+                                modifier = Modifier.heightIn(min = 44.dp),
+                            ) {
+                                Text("Restaurar padrão")
+                            }
                         }
                     }
                 }
