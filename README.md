@@ -15,6 +15,16 @@
 
 ---
 
+## Grupo
+
+- Cauã Clemente Lima
+- Camilla Matos Araújo
+- Enzo Fernandes Sarmento
+- Jan Filipe Rocha Pereira
+- Ronaldo Ribeiro Porto Filho
+
+---
+
 ## Sumário
 
 - [1. Propósito da Aplicação](#1-propósito-da-aplicação)
