@@ -226,6 +226,7 @@ fileshare/
 | Área | Documento | Conteúdo |
 | :--- | :--- | :--- |
 | **Redes (Autocontido)** | [`README.md`](README.md) | Documentação unificada de Redes: modelo cliente-servidor, transporte TCP/UDP, eventos, estados, mensagens e requisitos |
+| **Guia para Apresentação** | [`docs/networking-presentation-guide.md`](docs/networking-presentation-guide.md) | Conceitos de Redes aplicados e apontamento exato das classes e linhas no código-fonte |
 | **Protocolo** | [`docs/protocol-fsap.md`](docs/protocol-fsap.md) | Especificação normativa oficial do protocolo **FSAP/1.0**, portas e temporizadores |
 | **Mensagens** | [`docs/protocol-messages.md`](docs/protocol-messages.md) | Contratos campo a campo das 12 mensagens JSON e exemplos válidos/inválidos |
 | **Estados e Fluxos** | [`docs/state-machine.md`](docs/state-machine.md) · [`docs/communication-flows.md`](docs/communication-flows.md) | Máquinas de estados formais e diagramas de sequência Mermaid de ponta a ponta |
