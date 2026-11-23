@@ -271,6 +271,16 @@ Para detalhes completos sobre revisão de código e *Definition of Done*, consul
 
 ---
 
+## Equipe
+
+- Cauã Clemente Lima
+- Camilla Matos Araújo
+- Enzo Fernandes Sarmento
+- Jan Filipe Rocha Pereira
+- Ronaldo Ribeiro Porto Filho
+
+---
+
 ## Licença
 
 Este projeto é distribuído sob a **Licença MIT**. Consulte o arquivo [`LICENSE`](LICENSE) na raiz do repositório para ler os termos completos de uso, modificação e distribuição.
