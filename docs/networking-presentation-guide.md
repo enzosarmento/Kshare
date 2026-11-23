@@ -1,8 +1,29 @@
 # Guia de Conceitos de Redes e Mapeamento no Código — KShare (`FSAP/1.0`)
 
-> **Objetivo deste documento:** Servir como roteiro técnico de estudo e consulta rápida durante a **apresentação oral da disciplina de Redes de Computadores**. Cada seção explica um conceito clássico de Redes aplicado no KShare e aponta exatamente os arquivos, classes, funções e intervalos de linhas onde ele é implementado.
+> **Objetivo deste documento:** Servir como roteiro técnico de estudo e consulta rápida durante a **apresentação oral da disciplina de Redes de Computadores**. Reúne a explicação completa da **composição de pastas Kotlin Multiplatform (KMP)** — separando protocolo, UDP, TCP, código compartilhado e interfaces Desktop/Android — seguida dos **conceitos de Redes aplicados** com apontamento exato das classes, funções e intervalos de linhas no código-fonte.
 >
 > **Documento normativo completo:** Para a especificação formal autocontida exigida pelo enunciado, consulte [`../README.md`](../README.md).
+
+---
+
+## Sumário
+
+- [Mapa Rápido da Pilha TCP/IP no KShare](#mapa-rápido-da-pilha-tcpip-no-kshare)
+- [1. Composição de Pastas do Projeto e Arquitetura KMP](#1-composição-de-pastas-do-projeto-e-arquitetura-kmp)
+  - [1.1. Visão Geral das Pastas Raiz do Monorepo](#11-visão-geral-das-pastas-raiz-do-monorepo)
+  - [1.2. Hierarquia dos Source Sets KMP (Compartilhado × Específico)](#12-hierarquia-dos-source-sets-kmp-compartilhado--específico)
+  - [1.3. Raio-X Pasta por Pasta (`composeApp/src/`)](#13-raio-x-pasta-por-pasta-composeappsrc)
+  - [1.4. Mapa Direto por Responsabilidade (Protocolo, UDP, TCP, UI Desktop e UI Android)](#14-mapa-direto-por-responsabilidade-protocolo-udp-tcp-ui-desktop-e-ui-android)
+- [2. Modelo Distribuído Cliente-Servidor e Separação UI × Rede](#2-modelo-distribuído-cliente-servidor-e-separação-ui--rede)
+- [3. Endereçamento IPv4 (`RFC 1918`), Interfaces de Rede e Filtro Anti-Virtuais](#3-endereçamento-ipv4-rfc-1918-interfaces-de-rede-e-filtro-anti-virtuais)
+- [4. Socket UDP Multicast (`239.255.70.83:53318`), MTU e Controle de Tempestade](#4-socket-udp-multicast-239255708353318-mtu-e-controle-de-tempestade)
+- [5. Socket TCP (`53317`), Bind, Conflito de Porta e Fallback Manual Unicast](#5-socket-tcp-53317-bind-conflito-de-porta-e-fallback-manual-unicast)
+- [6. Protocolo de Camada de Aplicação (`FSAP/1.0`): Enquadramento, Contratos e Erros](#6-protocolo-de-camada-de-aplicação-fsap10-enquadramento-contratos-e-erros)
+- [7. Máquinas de Estados Finitos Determinísticas](#7-máquinas-de-estados-finitos-determinísticas)
+- [8. Streaming Binário `O(1)`, Timeouts e Integridade Ponta a Ponta (`SHA-256`)](#8-streaming-binário-o1-timeouts-e-integridade-ponta-a-ponta-sha-256)
+- [9. Concorrência, Controle de Sessões e Cancelamento Bilateral](#9-concorrência-controle-de-sessões-e-cancelamento-bilateral)
+- [10. Segurança na Rede Local: Token Efêmero, Anti-DoS, *Path Traversal* e TLS com TOFU](#10-segurança-na-rede-local-token-efêmero-anti-dos-path-traversal-e-tls-com-tofu)
+- [11. Roteiro de Demonstração Ao Vivo + Perguntas Prováveis do Professor](#11-roteiro-de-demonstração-ao-vivo--perguntas-prováveis-do-professor)
 
 ---
 
@@ -22,7 +43,134 @@
 
 ---
 
-## 1. Modelo Distribuído Cliente-Servidor e Separação UI × Rede
+## 1. Composição de Pastas do Projeto e Arquitetura KMP
+
+### 1.1. Visão Geral das Pastas Raiz do Monorepo
+
+| Diretório / Arquivo | Papel no Repositório |
+| :--- | :--- |
+| `composeApp/` | Módulo Gradle **Kotlin Multiplatform + Compose Multiplatform** contendo todo o código-fonte compartilhado e específico de Desktop (Linux/Windows) e Android ([`composeApp/build.gradle.kts`](../composeApp/build.gradle.kts#L16-L41)). |
+| `docs/` | Especificação normativa do protocolo `FSAP/1.0`, máquinas de estados, diagramas de fluxo, ADRs, segurança, casos de teste `TC-FSAP-001..026` e este guia de apresentação. |
+| `scripts/` | Automação de execução e entrega: servidor CLI (`run-desktop-server.sh`), UI Desktop (`run-desktop-ui.sh`), checagem estrutural (`check-structure.sh`), validação cruzada (`run-interop-checks.sh`) e empacotamento de release (`prepare-release-assets.sh`). |
+| `gradle/` | Catálogo centralizado de dependências e versões em [`gradle/libs.versions.toml`](../gradle/libs.versions.toml) (Kotlin, Ktor, Coroutines, Serialization, Compose, AGP) + Gradle Wrapper. |
+| `.github/workflows/` | Pipeline de CI/CD para execução dos testes e publicação automática das releases multiplataforma (`.apk`, `.deb`, `.msi`, `.zip` e `.jar`). |
+| Raiz (`README.md`, `README-PROJECT.md`, `CONTRIBUTING.md`, `SECURITY.md`, `LICENSE`) | Documentação acadêmica autocontida de Redes (`README.md`), guia de usuário/downloads do projeto (`README-PROJECT.md`), diretrizes de colaboração e licença MIT. |
+
+### 1.2. Hierarquia dos Source Sets KMP (Compartilhado × Específico)
+
+Conforme configurado em [`composeApp/build.gradle.kts`](../composeApp/build.gradle.kts#L22-L29), o código-fonte sob `composeApp/src/` é organizado em camadas hierárquicas de compartilhamento:
+
+```mermaid
+flowchart TD
+    COMMON["commonMain\n(100% Compartilhado: Desktop + Android)\nProtocolo FSAP/1.0 - Descoberta - Ktor Server/Client\nStreaming 64 KB - Segurança - TODA a UI Compose + ViewModels"]
+    JVM_COMMON["jvmCommonMain\n(Compartilhado entre Desktop JVM e Android ART)\nMulticastSocket - NetworkInterface - SHA-256\nSecureRandom - TLS/X.509 Proxy - Clock / UUID / Lock"]
+    DESKTOP["desktopMain\n(Exclusivo Linux & Windows)\nCasca GUI Main.kt + Servidor Headless ServerMain.kt\njava.nio.file + Seletor Nativo + Tema do SO"]
+    ANDROID["androidMain\n(Exclusivo Android 8.0+ / API 26–35)\nCasca GUI MainActivity.kt + FsapForegroundService\nWifiManager.MulticastLock + SAF + MediaStore + Manifest"]
+
+    COMMON --> JVM_COMMON
+    JVM_COMMON --> DESKTOP
+    JVM_COMMON --> ANDROID
+
+    TEST_COMMON["commonTest\n(Unitários & UDP TC-FSAP-001..005)"]
+    TEST_DESKTOP["desktopTest\n(Sockets Reais TCP/UDP, TC-FSAP-006..026, Anti-DoS, TLS)"]
+    TEST_ANDROID["androidUnitTest\n(SAF, MediaStore, MulticastLock, ForegroundService, E2E)"]
+
+    COMMON -.-> TEST_COMMON
+    DESKTOP -.-> TEST_DESKTOP
+    ANDROID -.-> TEST_ANDROID
+```
+
+> **Como funciona o compartilhamento `expect` / `actual` no Kotlin Multiplatform:** Quando o núcleo em `commonMain` precisa de uma primitiva que depende da plataforma (como cálculo `SHA-256`, geração de token criptográfico, proxy TLS, `UUID`, `Clock` ou detecção de tema escuro), ele declara apenas o contrato **`expect`** (ex.: `expect class IncrementalSha256`) em `commonMain`, e o compilador acopla automaticamente a implementação **`actual`** correspondente de `jvmCommonMain`, `desktopMain` ou `androidMain` na compilação de cada alvo.
+
+### 1.3. Raio-X Pasta por Pasta (`composeApp/src/`)
+
+#### 1) `composeApp/src/commonMain/` — Núcleo 100% Compartilhado (Desktop + Android)
+Contém toda a inteligência do protocolo, da rede e também **toda a interface visual reutilizada** entre Desktop GUI e Android:
+
+- `kotlin/br/edu/fileshare/ProjectInfo.kt` — nome oficial (`KShare`) e identificação normativa (`FSAP/1.0`).
+- `kotlin/br/edu/fileshare/core/` — infraestrutura básica: `di/AppContainer.kt`, `logging/FsapLogger.kt`, `time/Clock.kt`, `id/UuidGenerator.kt`, `concurrency/PlatformLock.kt`.
+- `kotlin/br/edu/fileshare/protocol/` — **o protocolo criado (`FSAP/1.0`):**
+  - `FsapConstants.kt`: portas padrão (`53317/TCP`, `53318/UDP`, grupo `239.255.70.83`), limites de pacote/chunk/lote e 11 constantes de temporização;
+  - `model/`: `DeviceIdentity.kt`, `FsapEnvelope.kt` (`FsapMessageType`, `FsapEnvelope`, `FsapJson`), `FsapHeaders.kt` (`X-FSAP-*`), `FsapPayloads.kt` (payloads de todas as 12 mensagens);
+  - `validation/FsapMessageValidator.kt`: validações sintáticas, UUIDv4, versão `MAJOR.MINOR`, nomes e limites;
+  - `statemachine/`: `FiniteStateMachine.kt` (motor genérico com `Mutex`), `LocalNodeStateMachine.kt`, `PeerConnectionStateMachine.kt` e `TransferStateMachine.kt`;
+  - `error/FsapErrorCode.kt`: os **17 códigos padronizados `FSAP-ERR-*`**.
+- `kotlin/br/edu/fileshare/network/` — **toda a engine de comunicação UDP + HTTP/TCP:**
+  - `discovery/`: `MulticastTransport.kt` (`DiscoveryDefaults`, `NetworkInterfaceFilter`), `DiscoveryBroadcaster.kt` (`DISCOVER`, `ANNOUNCE`, `BYE`), `DiscoveryListener.kt` (validação UDP + jitter `50..300 ms`), `DiscoveryCoordinator.kt`, `PeerRegistry.kt`, `PeerRegistrySweeper.kt` e `ManualPeerConnector.kt` (conexão manual via **TCP** `IDENTIFY`);
+  - `server/`: `FsapHttpServer.kt` (servidor **Ktor CIO** com seleção automática de porta livre em conflito), `ServerTransferSessionManager.kt`, `TransferApprovalHandler.kt`, `TransferTokenManager.kt` e subpacote `routes/` (`TransferPrepareRoute.kt`, `TransferContentRoute.kt`, `TransferControlRoutes.kt`);
+  - `client/`: `FsapHttpClient.kt` (cliente **Ktor CIO** para envio de manifesto, streaming e cancelamento);
+  - `streaming/`: `IncrementalSha256Channel.kt` (leitura/escrita em `64 KB` + hash SHA-256 incremental + limpeza `.part`);
+  - `transfer/`: `TransferCoordinator.kt` e `TransferProgressTracker.kt` (orquestração unificada envio/recepção e cálculo de taxa/progresso).
+- `kotlin/br/edu/fileshare/security/tls/FsapTlsContract.kt` — contrato multiplataforma para certificados efêmeros X.509 e pinning SHA-256 (TOFU).
+- `kotlin/br/edu/fileshare/storage/` — portas abstratas de E/S sem acoplamento a disco/SAF (`FileSource.kt`, `FileSink.kt`), `FileNameSanitizer.kt` (bloqueio de *Path Traversal* e não-sobrescrita `arquivo (1).ext`) e `StorageExhaustionClassifier.kt` (detecção de falta de espaço / `HTTP 507`).
+- `kotlin/br/edu/fileshare/ui/` + `composeResources/drawable/kshare_icon.png` — **toda a UI compartilhada (Compose Material 3):**
+  - `FileShareApp.kt`: tela principal com abas (**Enviar**, **Recebidos**, **Transferências**, **Configurações**) e banners responsivos para Desktop e Android;
+  - `components/`: `ManualIpConnectDialog.kt`, `IncomingTransferApprovalDialog.kt`, `TransferProgressScreen.kt`, `KShareUiComponents.kt`;
+  - `viewmodel/`: `FileShareMainViewModel.kt`, `ManualIpConnectViewModel.kt`, `IncomingApprovalViewModel.kt`, `TransferProgressViewModel.kt`;
+  - `theme/FileShareTheme.kt` e `format/ByteFormatter.kt`.
+  - *(Regra arquitetural rigorosa: o pacote `ui.*` consome os fluxos reativos da camada de rede, mas **jamais** é importado por `protocol.*` ou `network.*`, nem pelo Servidor Headless `ServerMainKt`)*.
+
+#### 2) `composeApp/src/jvmCommonMain/` — Primitivas Nativas JVM Compartilhadas (Desktop + Android ART)
+Implementa os contratos de rede, criptografia e SO usando as APIs padrão `java.net.*`, `java.security.*` e `javax.net.ssl.*` (que rodam tanto na JVM Desktop quanto no Android):
+- `network/discovery/`: `JvmMulticastTransport.kt` (`java.net.MulticastSocket`) e `JvmNetworkInterfaceProvider.kt` (`java.net.NetworkInterface`).
+- `network/server/`: `PlatformTokenCrypto.jvm.kt` (`SecureRandom` + `MessageDigest.isEqual`).
+- `network/streaming/`: `IncrementalSha256.jvm.kt` (`MessageDigest.getInstance("SHA-256")`).
+- `security/tls/`: `PlatformTlsProvider.jvm.kt` (geração X.509 RSA-2048 efêmero, `SSLServerSocket` Proxy TLS e `X509TrustManager` com pinning).
+- `core/`: `PlatformLock.jvm.kt`, `UuidGenerator.jvm.kt`, `SystemClock.jvm.kt`.
+
+#### 3) `composeApp/src/desktopMain/` — Aplicação Desktop (Linux e Windows)
+Reúne **dois programas independentes** (o Cliente/App gráfico com UI e o Servidor CLI puro) além do armazenamento em disco NIO:
+- **Casca da Interface Gráfica Desktop:**
+  - `desktop/Main.kt` — ponto de entrada gráfico que abre a janela Desktop (`Window(...)`) e monta [`FileShareApp`](../composeApp/src/commonMain/kotlin/br/edu/fileshare/ui/FileShareApp.kt) vindo de `commonMain`;
+  - `desktop/runtime/DesktopAppRuntime.kt` — liga UI/ViewModels ao `FsapHttpServer`, `DiscoveryCoordinator`, `TransferCoordinator` e escolha/restauração da pasta padrão (`~/Downloads/Kshare`);
+  - `desktop/storage/DesktopFilePicker.kt` — abre os seletores nativos de arquivos/pastas do SO no Desktop;
+  - `ui/theme/PlatformDarkTheme.desktop.kt` — implementa o `actual` que detecta automaticamente o tema claro/escuro do Linux/Windows.
+- **Programa Servidor Independente (Headless / CLI — zero dependências de UI):**
+  - `desktop/server/ServerMain.kt` — executável de terminal que inicia somente servidor HTTP/TCP + descoberta UDP (`./scripts/run-desktop-server.sh` ou `java -jar kshare-server-all.jar`);
+  - `desktop/server/ServerCliParser.kt` — parser das opções `--port`, `--alias`, `--download-dir`, `--tls`, `--auto-accept-test`, `--help`;
+  - `desktop/server/ConsoleTransferApprovalHandler.kt` — aprovação interativa no terminal (`stdin`).
+- **Infraestrutura Desktop:** `desktop/storage/DesktopNioFileStorage.kt` (`FileChannel`, `.fsap-staging/*.part`, commit atômico via `Files.move`), `desktop/di/DesktopServerContainer.kt`, `desktop/logging/Slf4jFsapLogger.kt` e `resources/` (`kshare-icon.*` e `logback.xml`).
+
+#### 4) `composeApp/src/androidMain/` — Aplicação Android (`8.0+ / API 26–35`)
+Adapta a execução da rede em segundo plano e o armazenamento com segurança do Android:
+- **Casca da Interface Gráfica Android:**
+  - `android/MainActivity.kt` — `ComponentActivity` que chama `setContent { FileShareApp(...) }`, plugando exatamente a **mesma interface gráfica de `commonMain`** sem duplicar telas;
+  - `ui/theme/PlatformDarkTheme.android.kt` — `actual` conectado ao tema claro/escuro do sistema Android;
+  - `res/` — ícones adaptativos do app.
+- **Rede e Serviço em Primeiro Plano Android:**
+  - `android/network/AndroidMulticastLockManager.kt` — gerencia `WifiManager.MulticastLock` (`setReferenceCounted(false)`) e exclui interfaces celulares (`rmnet`, `ccmni`, `pdp`, `dummy`), priorizando `wlan*`;
+  - `android/service/FsapForegroundService.kt` — serviço `dataSync` que mantém servidor HTTP/TCP, socket UDP, `MulticastLock`, notificações e botão de cancelamento vivos mesmo com tela desligada ou app em segundo plano;
+  - `android/service/AndroidNotificationPermissions.kt` e `AndroidManifest.xml` — permissões de Wi-Fi, Multicast, Foreground Service e Notificações.
+- **Runtime e Armazenamento Android:**
+  - `android/runtime/AndroidFileShareRuntime.kt` — faz a ponte entre a UI Compose (`MainActivity`) e o `FsapForegroundService` + SAF + restauração da pasta padrão (`Downloads/Kshare` via `MediaStore`);
+  - `android/storage/AndroidSafFilePicker.kt` e `AndroidSafFileSource.kt` — leitura de arquivos via `OpenMultipleDocuments` (SAF) e `ContentResolver` em streaming `64 KB`;
+  - `android/storage/AndroidFileSink.kt` — staging em `cacheDir/incoming/` e promoção atômica para `MediaStore.Downloads` (`Downloads/Kshare`) ou pasta SAF escolhida;
+  - `android/di/AndroidAppContainer.kt` e `android/logging/AndroidFsapLogger.kt`.
+
+#### 5) Source Sets de Testes (`composeApp/src/*Test/`)
+- `commonTest/` — testes multiplataforma de contratos JSON, 18 transições das FSMs, validadores, tokens, sanitização de nomes, streaming `64 KB`, ViewModels e conformidade UDP **`TC-FSAP-001` a `TC-FSAP-005`**.
+- `desktopTest/` — testes com **sockets UDP/TCP reais**: conformidade **`TC-FSAP-006` a `TC-FSAP-026`**, 4 clientes simultâneos (`ConcurrentTransfersTest`), limites anti-DoS (`ResourceExhaustionSecurityTest`), TLS/TOFU e prevenção MITM (`TlsTransportIntegrationTest`), cancelamento bilateral e interoperabilidade GUI ↔ Servidor CLI.
+- `androidUnitTest/` — testes de ciclo de vida Android (`FsapForegroundServiceTest`, `AndroidMulticastLockManagerTest`, `AndroidStorageTest` para SAF/`MediaStore`, `AndroidFileShareRuntimeTest` e `AndroidEndToEndTransferIntegrationTest`).
+
+---
+
+### 1.4. Mapa Direto por Responsabilidade (Protocolo, UDP, TCP, UI Desktop e UI Android)
+
+Use esta tabela para apontar rapidamente onde cada parte mora quando o professor perguntar durante a apresentação:
+
+| O que o Professor Perguntar | Onde Mostrar Exatamente |
+| :--- | :--- |
+| **1. Onde está o protocolo criado (`FSAP/1.0`)?** | Em `commonMain`: [`protocol/FsapConstants.kt`](../composeApp/src/commonMain/kotlin/br/edu/fileshare/protocol/FsapConstants.kt), [`protocol/model/`](../composeApp/src/commonMain/kotlin/br/edu/fileshare/protocol/model/FsapEnvelope.kt), [`protocol/validation/FsapMessageValidator.kt`](../composeApp/src/commonMain/kotlin/br/edu/fileshare/protocol/validation/FsapMessageValidator.kt), [`protocol/statemachine/`](../composeApp/src/commonMain/kotlin/br/edu/fileshare/protocol/statemachine/TransferStateMachine.kt) e [`protocol/error/FsapErrorCode.kt`](../composeApp/src/commonMain/kotlin/br/edu/fileshare/protocol/error/FsapErrorCode.kt). |
+| **2. O que faz parte do UDP (Descoberta)?** | Orquestração e filtro RFC 1918 em `commonMain/network/discovery/` (`DiscoveryBroadcaster`, `DiscoveryListener`, `DiscoveryCoordinator`, `PeerRegistry`, `PeerRegistrySweeper`, `MulticastTransport`); socket real `java.net.MulticastSocket` em `jvmCommonMain` ([`JvmMulticastTransport.kt`](../composeApp/src/jvmCommonMain/kotlin/br/edu/fileshare/network/discovery/JvmMulticastTransport.kt), [`JvmNetworkInterfaceProvider.kt`](../composeApp/src/jvmCommonMain/kotlin/br/edu/fileshare/network/discovery/JvmNetworkInterfaceProvider.kt)); `WifiManager.MulticastLock` no Android ([`AndroidMulticastLockManager.kt`](../composeApp/src/androidMain/kotlin/br/edu/fileshare/android/network/AndroidMulticastLockManager.kt)). |
+| **3. O que faz parte do TCP (HTTP/1.1, Controle, Streaming e TLS)?** | Servidor TCP passivo Ktor CIO e rotas `/fsap/v1/*` em `commonMain/network/server/` ([`FsapHttpServer.kt`](../composeApp/src/commonMain/kotlin/br/edu/fileshare/network/server/FsapHttpServer.kt), `routes/TransferPrepareRoute.kt`, `routes/TransferContentRoute.kt`, `routes/TransferControlRoutes.kt`), Cliente TCP ativo em [`FsapHttpClient.kt`](../composeApp/src/commonMain/kotlin/br/edu/fileshare/network/client/FsapHttpClient.kt), Fallback manual TCP em [`ManualPeerConnector.kt`](../composeApp/src/commonMain/kotlin/br/edu/fileshare/network/discovery/ManualPeerConnector.kt), streaming `64 KB` em [`IncrementalSha256Channel.kt`](../composeApp/src/commonMain/kotlin/br/edu/fileshare/network/streaming/IncrementalSha256Channel.kt) e Proxy TLS (`SSLServerSocket`) em [`PlatformTlsProvider.jvm.kt`](../composeApp/src/jvmCommonMain/kotlin/br/edu/fileshare/security/tls/PlatformTlsProvider.jvm.kt). |
+| **4. O que é compartilhado entre Desktop e Android?** | Todo `commonMain` (protocolo + UDP + TCP + streaming + segurança + **todas as telas, modais, ViewModels e tema Material 3**) + todo `jvmCommonMain` (sockets multicast, enumeração de interfaces, `SHA-256`, `SecureRandom`, proxy TLS, relógio, UUID e locks). |
+| **5. Onde está a Interface Gráfica Compartilhada (as telas e estado visual)?** | Em `commonMain/ui/`: [`FileShareApp.kt`](../composeApp/src/commonMain/kotlin/br/edu/fileshare/ui/FileShareApp.kt), `ui/components/` (`IncomingTransferApprovalDialog.kt`, `ManualIpConnectDialog.kt`, `TransferProgressScreen.kt`, `KShareUiComponents.kt`), `ui/viewmodel/` e `ui/theme/FileShareTheme.kt`. |
+| **6. Onde está a parte gráfica exclusiva de cada plataforma?** | **Desktop (Linux/Windows):** [`desktop/Main.kt`](../composeApp/src/desktopMain/kotlin/br/edu/fileshare/desktop/Main.kt#L32-L114), [`DesktopAppRuntime.kt`](../composeApp/src/desktopMain/kotlin/br/edu/fileshare/desktop/runtime/DesktopAppRuntime.kt), [`DesktopFilePicker.kt`](../composeApp/src/desktopMain/kotlin/br/edu/fileshare/desktop/storage/DesktopFilePicker.kt) e `PlatformDarkTheme.desktop.kt`.<br>**Android:** [`android/MainActivity.kt`](../composeApp/src/androidMain/kotlin/br/edu/fileshare/android/MainActivity.kt#L33-L130), [`AndroidFileShareRuntime.kt`](../composeApp/src/androidMain/kotlin/br/edu/fileshare/android/runtime/AndroidFileShareRuntime.kt), [`AndroidSafFilePicker.kt`](../composeApp/src/androidMain/kotlin/br/edu/fileshare/android/storage/AndroidSafFilePicker.kt) e `PlatformDarkTheme.android.kt`. Ambas são **cascas finas** que apenas inicializam o runtime nativo e renderizam `FileShareApp(...)` de `commonMain`. |
+| **7. Onde está o Servidor Desktop Independente (sem UI)?** | Em [`desktop/server/ServerMain.kt`](../composeApp/src/desktopMain/kotlin/br/edu/fileshare/desktop/server/ServerMain.kt), [`ServerCliParser.kt`](../composeApp/src/desktopMain/kotlin/br/edu/fileshare/desktop/server/ServerCliParser.kt) e [`ConsoleTransferApprovalHandler.kt`](../composeApp/src/desktopMain/kotlin/br/edu/fileshare/desktop/server/ConsoleTransferApprovalHandler.kt) — roda sem Compose/AWT/Swing. |
+
+---
+
+## 2. Modelo Distribuído Cliente-Servidor e Separação UI × Rede
 
 ### Conceito para Explicar ao Professor
 Embora o usuário final enxergue uma transferência ponto a ponto na rede local, na camada de aplicação e transporte o KShare implementa rigorosamente o **modelo Cliente-Servidor**:
@@ -39,7 +187,7 @@ Embora o usuário final enxergue uma transferência ponto a ponto na rede local,
 
 ---
 
-## 2. Endereçamento IPv4 (`RFC 1918`), Interfaces de Rede e Filtro Anti-Virtuais
+## 3. Endereçamento IPv4 (`RFC 1918`), Interfaces de Rede e Filtro Anti-Virtuais
 
 ### Conceito para Explicar ao Professor
 Em sistemas operacionais reais (Linux com Docker/KVM/VPN, Windows com WSL2/Hyper-V/VirtualBox ou Android com interface celular `rmnet`), o computador possui várias interfaces de rede simultâneas. Se um socket multicast fizer *join* na interface padrão escolhida aleatoriamente pelo sistema operacional, os pacotes podem ser enviados para uma ponte virtual (`docker0` ou WSL2) em vez da rede Wi-Fi/Ethernet real onde os outros dispositivos estão.
@@ -59,7 +207,7 @@ O KShare resolve isso enumerando todas as `NetworkInterface`s e filtrando determ
 
 ---
 
-## 3. Socket UDP Multicast (`239.255.70.83:53318`), MTU e Controle de Tempestade
+## 4. Socket UDP Multicast (`239.255.70.83:53318`), MTU e Controle de Tempestade
 
 ### Conceito para Explicar ao Professor
 Para descobrir dispositivos na LAN sem servidor central nem varredura IP sequencial, o protocolo utiliza **UDP Multicast**:
@@ -95,7 +243,7 @@ Para descobrir dispositivos na LAN sem servidor central nem varredura IP sequenc
 
 ---
 
-## 4. Socket TCP (`53317`), Bind, Conflito de Porta e Fallback Manual Unicast
+## 5. Socket TCP (`53317`), Bind, Conflito de Porta e Fallback Manual Unicast
 
 ### Conceito para Explicar ao Professor
 Toda sinalização de sessão e transferência de arquivos exige entrega confiável, ordenada, sem perda nem duplicação e com controle de congestionamento — propriedades exclusivas do **TCP**.
@@ -113,7 +261,7 @@ Principais detalhes implementados na camada TCP:
 
 ---
 
-## 5. Protocolo de Camada de Aplicação (`FSAP/1.0`): Enquadramento, Contratos e Erros
+## 6. Protocolo de Camada de Aplicação (`FSAP/1.0`): Enquadramento, Contratos e Erros
 
 ### Conceito para Explicar ao Professor
 Como sockets TCP oferecem um **fluxo contínuo de bytes sem fronteiras de mensagem (*byte stream*)**, a camada de aplicação precisa definir **enquadramento (*framing*)**:
@@ -132,7 +280,7 @@ Como sockets TCP oferecem um **fluxo contínuo de bytes sem fronteiras de mensag
 
 ---
 
-## 6. Máquinas de Estados Finitos Determinísticas
+## 7. Máquinas de Estados Finitos Determinísticas
 
 ### Conceito para Explicar ao Professor
 Em protocolos de rede concorrentes, aceitar mensagens fora de ordem (ex.: enviar bytes antes da aprovação ou finalizar lote sem enviar todos os arquivos) causa corrupção de estado. O protocolo `FSAP/1.0` modela o sistema com **três máquinas de estados finitos ortogonais** (Nó Local, Conexão de Par e Sessão de Transferência):
@@ -148,7 +296,7 @@ Em protocolos de rede concorrentes, aceitar mensagens fora de ordem (ex.: enviar
 
 ---
 
-## 7. Streaming Binário `O(1)`, Timeouts e Integridade Ponta a Ponta (`SHA-256`)
+## 8. Streaming Binário `O(1)`, Timeouts e Integridade Ponta a Ponta (`SHA-256`)
 
 ### Conceito para Explicar ao Professor
 Um ponto importante para diferenciar camadas na apresentação:
@@ -168,7 +316,7 @@ Um ponto importante para diferenciar camadas na apresentação:
 
 ---
 
-## 8. Concorrência, Controle de Sessões e Cancelamento Bilateral
+## 9. Concorrência, Controle de Sessões e Cancelamento Bilateral
 
 ### Conceito para Explicar ao Professor
 Em sistemas cliente-servidor distribuídos, múltiplos clientes podem enviar requisições ao mesmo servidor simultaneamente:
@@ -185,7 +333,7 @@ Em sistemas cliente-servidor distribuídos, múltiplos clientes podem enviar req
 
 ---
 
-## 9. Segurança na Rede Local: Token Efêmero, Anti-DoS, *Path Traversal* e TLS com TOFU
+## 10. Segurança na Rede Local: Token Efêmero, Anti-DoS, *Path Traversal* e TLS com TOFU
 
 ### Conceito para Explicar ao Professor
 Uma LAN aberta (como Wi-Fi de laboratório ou universidade) é um ambiente compartilhado onde outros hosts podem tentar abusar das portas abertas:
@@ -205,7 +353,7 @@ Uma LAN aberta (como Wi-Fi de laboratório ou universidade) é um ambiente compa
 
 ---
 
-## 10. Roteiro de Demonstração Ao Vivo + Perguntas Prováveis do Professor
+## 11. Roteiro de Demonstração Ao Vivo + Perguntas Prováveis do Professor
 
 ### Roteiro Sugerido para Apresentação (10–15 minutos)
 
