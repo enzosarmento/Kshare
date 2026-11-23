@@ -750,6 +750,7 @@ Para observar em tempo real os datagramas UDP (`DISCOVER`, `ANNOUNCE`, `BYE`) e 
 
 - **Guia do Projeto, Downloads Pré-Compilados (`.apk`, `.deb`, `.msi`, `.zip`, `.jar`), Estrutura e Contribuição:** [**`README-PROJECT.md`**](README-PROJECT.md).
 - **Guia de Conceitos de Redes e Mapeamento no Código para Apresentação Oral:** [**`docs/networking-presentation-guide.md`**](docs/networking-presentation-guide.md).
+- **Explicação Simplificada para Iniciantes (UDP, TCP e Protocolo sem Jargão):** [**`docs/networking-explained-simple.md`**](docs/networking-explained-simple.md).
 - **Documentos Técnicos Detalhados na Pasta `docs/`:**
   - Protocolo e Contratos: [`docs/protocol-fsap.md`](docs/protocol-fsap.md) · [`docs/protocol-messages.md`](docs/protocol-messages.md) · [`docs/error-codes.md`](docs/error-codes.md)
   - Estados e Diagramas de Sequência: [`docs/state-machine.md`](docs/state-machine.md) · [`docs/communication-flows.md`](docs/communication-flows.md)
